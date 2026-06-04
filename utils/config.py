@@ -200,6 +200,31 @@ DEPARTURE_RATIO_MIN: float = 1.0
 """departure / zone_width must be >= this to pass the zone-relative gate."""
 
 # -----------------------------------------------------------------------------
+# Freshness thresholds (Phase 8)
+# -----------------------------------------------------------------------------
+
+FRESHNESS_MAX_TOUCHES: int = 2
+"""A zone with >= this many touches scores 0 (stale — too much liquidity consumed)."""
+
+FRESHNESS_SCORE_TABLE: dict[int, int] = {0: 2, 1: 1}
+"""Maps touch count → freshness score. Any touches >= FRESHNESS_MAX_TOUCHES → score 0.
+   0 touches (never re-entered) → 2  (fresh)
+   1 touch                      → 1  (tested once, still valid)
+   2+ touches                   → 0  (stale)
+"""
+
+# -----------------------------------------------------------------------------
+# Time-score thresholds (Phase 9)
+# -----------------------------------------------------------------------------
+
+TIME_SCORE_TABLE: dict[int, int] = {1: 2, 2: 2, 3: 1}
+"""Maps base candle count → time score. Any count >= 4 → score 0.
+   1–2 candles → 2  (explosive, single-decision base — highest conviction)
+   3   candles → 1  (compact base — acceptable)
+   4+ candles  → 0  (indecisive, too much back-and-forth)
+"""
+
+# -----------------------------------------------------------------------------
 # Chart theme (dark TradingView-inspired palette)
 # -----------------------------------------------------------------------------
 
