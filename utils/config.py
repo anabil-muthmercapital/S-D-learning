@@ -174,6 +174,32 @@ Measures how tightly the cluster's closing prices are grouped.
 0 = all closes identical (perfectly calm), 1 = closes cover the full range."""
 
 # -----------------------------------------------------------------------------
+# Leg measurement thresholds (Phase 5)
+# -----------------------------------------------------------------------------
+
+LEG_CANDLES: int = 3
+"""Maximum window (1–3 bars) to look back (leg-in) and forward (leg-out) from the base cluster.
+A single strong candle within this window is enough to qualify as a leg — the window is not a
+fixed count requirement."""
+
+LEG_ATR_MIN: float = 1.5
+"""A leg must displace at least this many ATRs to count as directional.
+Weaker moves are classified as 'flat' and the cluster is discarded."""
+
+# -----------------------------------------------------------------------------
+# Departure thresholds (Phase 6)
+# -----------------------------------------------------------------------------
+
+DEPARTURE_CANDLES: int = 3
+"""Bars after the base end to scan for peak excursion."""
+
+DEPARTURE_ATR_MIN: float = 1.5
+"""departure / avg_ATR must be >= this to pass the volatility-adjusted gate."""
+
+DEPARTURE_RATIO_MIN: float = 1.0
+"""departure / zone_width must be >= this to pass the zone-relative gate."""
+
+# -----------------------------------------------------------------------------
 # Chart theme (dark TradingView-inspired palette)
 # -----------------------------------------------------------------------------
 
