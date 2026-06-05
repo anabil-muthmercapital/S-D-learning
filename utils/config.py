@@ -225,6 +225,22 @@ TIME_SCORE_TABLE: dict[int, int] = {1: 2, 2: 2, 3: 1}
 """
 
 # -----------------------------------------------------------------------------
+# Curve-score HTF reference (Phase 10)
+# -----------------------------------------------------------------------------
+
+HTF_REF: dict[str, str] = {
+    "1h":  "1d",
+    "4h":  "1d",
+    "1d":  "1wk",   # used only when 1wk data is present
+}
+"""Maps each LTF/ITF to its HTF reference timeframe for curve scoring.
+If the mapped HTF key is not present in the loaded data, scoring falls back to "1d"."""
+
+HTF_RANGE_LOOKBACK: int = 60
+"""Number of HTF bars used to compute the rolling point-in-time range for curve scoring.
+Only bars with timestamp <= the zone's formation bar are included (no lookahead)."""
+
+# -----------------------------------------------------------------------------
 # Chart theme (dark TradingView-inspired palette)
 # -----------------------------------------------------------------------------
 
