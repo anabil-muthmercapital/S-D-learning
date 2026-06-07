@@ -71,6 +71,25 @@ def _resample_4h(df: pd.DataFrame) -> pd.DataFrame:
     )
 
 
+def _resample_1d(df: pd.DataFrame) -> pd.DataFrame:
+    """Resample a 1h DataFrame to 1D OHLCV.
+
+    yfinance Forex daily data has a bug where open == close for ~70% of bars.
+    Reconstructing from 1h gives correct open prices (first 1h bar of the day).
+    """
+    return (
+        df.resample("1D", closed="left", label="left")
+        .agg(
+            open=("open", "first"),
+            high=("high", "max"),
+            low=("low", "min"),
+            close=("close", "last"),
+            volume=("volume", "sum"),
+        )
+        .dropna(subset=["open", "high", "low", "close"])
+    )
+
+
 def _csv_path(symbol: str, timeframe: str, data_dir: Path) -> Path:
     """Return the CSV path for a symbol/timeframe pair."""
     return data_dir / symbol / f"{timeframe}.csv"
@@ -129,6 +148,8 @@ def fetch_symbol(
     df = _clean(raw)
     if timeframe == "4h":
         df = _resample_4h(df)
+    elif timeframe == "1d":
+        df = _resample_1d(df)
 
     df = df.iloc[-n_candles:]
 
@@ -210,6 +231,8 @@ def download_symbol(
             df = _clean(raw)
             if tf == "4h":
                 df = _resample_4h(df)
+            elif tf == "1d":
+                df = _resample_1d(df)
 
             if len(df) < 20:
                 logger.warning("Too few rows — %s [%s]: %d", symbol, tf, len(df))

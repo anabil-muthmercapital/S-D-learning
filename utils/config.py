@@ -13,7 +13,7 @@ DEFAULT_TIMEFRAMES: list[str] = ["1wk", "1d", "4h", "1h"]
 
 YF_INTERVAL: dict[str, str] = {
     "1wk": "1wk",
-    "1d": "1d",
+    "1d": "1h",  # yfinance Forex daily open=close bug → fetch as 1h then resample
     "4h": "1h",  # yfinance has no native 4h → fetch as 1h then resample
     "1h": "1h",
 }
@@ -21,7 +21,7 @@ YF_INTERVAL: dict[str, str] = {
 
 DOWNLOAD_PERIOD: dict[str, str] = {
     "1wk": "5y",  # ~260 weekly candles
-    "1d": "5y",  # ~1 260 daily candles
+    "1d": "2y",  # fetched as 1h then resampled; yfinance 1h max is 2y (~500 daily bars)
     "4h": "2y",  # yfinance max for 1h interval (~2 190 4h bars after resample)
     "1h": "2y",  # yfinance max for 1h interval (~8 760 1h bars)
 }
@@ -229,9 +229,9 @@ TIME_SCORE_TABLE: dict[int, int] = {1: 2, 2: 2, 3: 1}
 # -----------------------------------------------------------------------------
 
 HTF_REF: dict[str, str] = {
-    "1h":  "1d",
-    "4h":  "1d",
-    "1d":  "1wk",   # used only when 1wk data is present
+    "1h": "1d",
+    "4h": "1d",
+    "1d": "1wk",  # used only when 1wk data is present
 }
 """Maps each LTF/ITF to its HTF reference timeframe for curve scoring.
 If the mapped HTF key is not present in the loaded data, scoring falls back to "1d"."""
