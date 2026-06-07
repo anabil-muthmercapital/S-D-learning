@@ -241,6 +241,15 @@ HTF_RANGE_LOOKBACK: int = 60
 Only bars with timestamp <= the zone's formation bar are included (no lookahead)."""
 
 # -----------------------------------------------------------------------------
+# Trend-alignment (Phase 11)
+# -----------------------------------------------------------------------------
+
+SWING_WINDOW: int = 3
+"""Half-window (in bars) used to identify swing highs and swing lows.
+A bar is a swing high if its high is the maximum over [i-w .. i+w]; likewise for lows.
+"""
+
+# -----------------------------------------------------------------------------
 # Chart theme (dark TradingView-inspired palette)
 # -----------------------------------------------------------------------------
 
