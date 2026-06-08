@@ -266,6 +266,15 @@ SETS_RATING_B: int = 5
 """SETS total >= this (and < SETS_RATING_A)  →  ★★ B-setup (trade with caution)."""
 
 # -----------------------------------------------------------------------------
+# Nested zones (Phase 13)
+# -----------------------------------------------------------------------------
+
+NESTED_OVERLAP_MIN: float = 0.50
+"""Two same-type zones are considered nested when their overlap / min_width >= this.
+Nested zones are merged: proximal = sharper entry side, distal = farther stop side.
+"""
+
+# -----------------------------------------------------------------------------
 # Chart theme (dark TradingView-inspired palette)
 # -----------------------------------------------------------------------------
 
