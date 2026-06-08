@@ -250,6 +250,22 @@ A bar is a swing high if its high is the maximum over [i-w .. i+w]; likewise for
 """
 
 # -----------------------------------------------------------------------------
+# S.E.T.S composite scoring (Phase 12)
+# -----------------------------------------------------------------------------
+
+SETS_STRENGTH_HIGH: float = 3.0
+"""dep_atr >= this  →  strength score 2 (explosive departure)."""
+
+SETS_STRENGTH_LOW: float = 1.5
+"""dep_atr >= this (and < SETS_STRENGTH_HIGH)  →  strength score 1."""
+
+SETS_RATING_A: int = 7
+"""SETS total >= this  →  ★★★ A-setup (take it)."""
+
+SETS_RATING_B: int = 5
+"""SETS total >= this (and < SETS_RATING_A)  →  ★★ B-setup (trade with caution)."""
+
+# -----------------------------------------------------------------------------
 # Chart theme (dark TradingView-inspired palette)
 # -----------------------------------------------------------------------------
 
