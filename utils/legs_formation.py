@@ -5,9 +5,8 @@
 # Responsibilities
 # ----------------
 # 1. FORMATION_MAP        — canonical (leg_in_dir, leg_out_dir) → (formation, zone_type)
-# 2. classify_move()      — turn a net price displacement into "up" / "down" / "flat"
-# 3. measure_legs()       — compute leg-in and leg-out net for one cluster
-# 4. detect_formations()  — full pipeline over all passed clusters for one DataFrame
+# 2. measure_legs()       — compute leg-in and leg-out for one cluster
+# 3. detect_formations()  — full pipeline over all passed clusters for one DataFrame
 #
 # Prerequisites
 # -------------
@@ -19,10 +18,10 @@
 
 from __future__ import annotations
 
-import numpy as np
 import pandas as pd
+import numpy as np
 
-from utils.config import LEG_CANDLES, LEG_ATR_MIN
+from utils.config import LEG_CANDLES, LEG_STRONG_BODY_RATIO
 
 # ---------------------------------------------------------------------------
 # Formation map
@@ -37,20 +36,20 @@ FORMATION_MAP: dict[tuple[str, str], tuple[str, str]] = {
 
 
 # ---------------------------------------------------------------------------
-# Step 1 — direction classifier
+# Step 1 — direction classifier (dominant-excursion, no ATR threshold)
 # ---------------------------------------------------------------------------
 
 
-def classify_move(net: float, avg_atr: float) -> str:
-    """Return 'up', 'down', or 'flat' based on net displacement vs local ATR.
-
-    A move must clear `LEG_ATR_MIN × avg_atr` to be considered directional.
-    Anything smaller is 'flat' (drifting, not impulsive).
+# Methodology-literal: leg direction is decided purely by which side of the
+# window dominates. The OTA spec does NOT require an ATR-multiple threshold —
+# real leg strength is enforced downstream by leg_strength (body-ratio gate).
+def _peak_excursion_dir(up_move: float, down_move: float) -> str:
+    """Return 'up' if up_move > down_move, 'down' if down_move > up_move,
+    'flat' only when both are exactly equal (or both zero).
     """
-    threshold = LEG_ATR_MIN * avg_atr
-    if net >= threshold:
+    if up_move > down_move:
         return "up"
-    if net <= -threshold:
+    if down_move > up_move:
         return "down"
     return "flat"
 
@@ -69,8 +68,11 @@ def measure_legs(
 
     Windows
     -------
-    Leg-in  : bars [bs - LEG_CANDLES, bs - 1]   net = close[bs-1] - open[bs-L]
-    Leg-out : bars [be + 1,  be + LEG_CANDLES]   net = close[be+L] - close[be]
+    Leg-in  : bars [bs - LEG_CANDLES, bs - 1]   reference = open[bs]
+    Leg-out : bars [be + 1,  be + LEG_CANDLES]  reference = close[be]
+
+    Both legs use PEAK excursion (high/low) rather than close-to-close so a
+    leg that spikes out and retraces still registers (round-trip trap).
 
     Guard rails
     -----------
@@ -81,13 +83,22 @@ def measure_legs(
     Returns
     -------
     dict with keys:
-        leg_in_dir, leg_out_dir : "up" | "down" | "flat"
-        leg_in_net, leg_out_net : raw price displacement (signed)
-        avg_atr                 : ATR averaged over the base candles
+        leg_in_dir, leg_out_dir   : "up" | "down" | "flat"
+        leg_in_up, leg_in_down    : peak excursions (always positive)
+        leg_out_up, leg_out_down  : peak excursions (always positive)
+        avg_atr                   : ATR averaged over the base candles
+        leg_strength              : strongest qualifying body/range ratio in leg-out
+        leg_strength_ok           : True when leg_strength >= LEG_STRONG_BODY_RATIO
+        clean_departure           : False when the strongest leg-out candle's wick
+                                    pierces the distal edge of the base
+                                    (demand: low < base_low; supply: high > base_high)
     """
     o = df["open"].to_numpy()
     c = df["close"].to_numpy()
+    h = df["high"].to_numpy()
+    low_arr = df["low"].to_numpy()
     atr = df["atr"].to_numpy()
+    btr = df["body_to_range_ratio"].to_numpy()
 
     avg_atr = atr[bs : be + 1].mean()
 
@@ -96,15 +107,73 @@ def measure_legs(
     if be + LEG_CANDLES >= len(c):
         return None  # not enough future after the base
 
-    leg_in_net = c[bs - 1] - o[bs - LEG_CANDLES]
-    leg_out_net = c[be + LEG_CANDLES] - c[be]
+    # Base geometry — used for the dirty-departure check below.
+    base_high = float(h[bs : be + 1].max())
+    base_low = float(low_arr[bs : be + 1].min())
+
+    # Leg-in: window [bs-L, bs-1], referenced to where the base BEGINS (open[bs]).
+    # Round-trip trap fix: scan peak high/low instead of close-to-close net.
+    in_hi = h[bs - LEG_CANDLES : bs].max()
+    in_lo = low_arr[bs - LEG_CANDLES : bs].min()
+    leg_in_up = o[bs] - in_lo  # rally INTO base from below
+    leg_in_down = in_hi - o[bs]  # drop INTO base from above
+    leg_in_dir = _peak_excursion_dir(leg_in_up, leg_in_down)
+
+    # Leg-out: window [be+1, be+L], referenced to where the base ENDS (close[be]).
+    out_hi = h[be + 1 : be + LEG_CANDLES + 1].max()
+    out_lo = low_arr[be + 1 : be + LEG_CANDLES + 1].min()
+    leg_out_up = out_hi - c[be]
+    leg_out_down = c[be] - out_lo
+    leg_out_dir = _peak_excursion_dir(leg_out_up, leg_out_down)
+
+    # Leg strength: strongest directionally-aligned body in the leg-out window.
+    # Lives here (not in zone_detector) because it is a LEG property, not zone geometry.
+    out_open = o[be + 1 : be + LEG_CANDLES + 1]
+    out_close = c[be + 1 : be + LEG_CANDLES + 1]
+    out_high = h[be + 1 : be + LEG_CANDLES + 1]
+    out_low = low_arr[be + 1 : be + LEG_CANDLES + 1]
+    out_btr = btr[be + 1 : be + LEG_CANDLES + 1]
+    if leg_out_dir == "up":
+        mask = out_close > out_open
+    elif leg_out_dir == "down":
+        mask = out_close < out_open
+    else:
+        mask = np.zeros(len(out_btr), dtype=bool)
+
+    if mask.any():
+        # Strongest qualifying candle = the one whose body/range ratio is max
+        # among the directionally-aligned candles. That's the candle that SET
+        # leg_strength, and the one whose wick we must inspect.
+        masked_btr = np.where(mask, out_btr, -np.inf)
+        strong_idx = int(np.argmax(masked_btr))
+        leg_strength = float(out_btr[strong_idx])
+        # Dirty-departure trap: consistent with the zone-death definition (a zone
+        # dies when price closes beyond the distal). If the strongest leg-out
+        # candle's wick already pierces the distal at birth, the departure was
+        # not a decisive break — price stabbed through the whole zone.
+        if leg_out_dir == "up":
+            # demand zone — distal is base_low; lower wick must stay >= base_low.
+            clean_departure = bool(out_low[strong_idx] >= base_low)
+        else:
+            # supply zone — distal is base_high; upper wick must stay <= base_high.
+            clean_departure = bool(out_high[strong_idx] <= base_high)
+    else:
+        leg_strength = 0.0
+        clean_departure = False  # no qualifying breakout candle exists
+
+    leg_strength_ok = leg_strength >= LEG_STRONG_BODY_RATIO
 
     return {
-        "leg_in_dir": classify_move(leg_in_net, avg_atr),
-        "leg_out_dir": classify_move(leg_out_net, avg_atr),
-        "leg_in_net": round(leg_in_net, 5),
-        "leg_out_net": round(leg_out_net, 5),
+        "leg_in_dir": leg_in_dir,
+        "leg_out_dir": leg_out_dir,
+        "leg_in_up": round(leg_in_up, 5),
+        "leg_in_down": round(leg_in_down, 5),
+        "leg_out_up": round(leg_out_up, 5),
+        "leg_out_down": round(leg_out_down, 5),
         "avg_atr": round(avg_atr, 5),
+        "leg_strength": round(leg_strength, 3),
+        "leg_strength_ok": leg_strength_ok,
+        "clean_departure": clean_departure,
     }
 
 
@@ -128,7 +197,9 @@ def detect_formations(
     -------
     List of dicts, one per confirmed formation.  Each dict contains all fields
     from the original cluster dict plus:
-        leg_in_dir, leg_out_dir, leg_in_net, leg_out_net, avg_atr,
+        leg_in_dir, leg_out_dir, leg_in_up, leg_in_down,
+        leg_out_up, leg_out_down, avg_atr,
+        leg_strength, leg_strength_ok, clean_departure,
         formation ("RBR" | "DBD" | "DBR" | "RBD"),
         zone_type ("demand" | "supply")
     """
@@ -144,6 +215,16 @@ def detect_formations(
         pair = FORMATION_MAP.get((legs["leg_in_dir"], legs["leg_out_dir"]))
         if pair is None:
             continue  # flat leg — no real formation
+
+        # Weak-leg trap: direction alone is not enough — a slow drift could win the
+        # excursion contest. The methodology requires at least one full-body candle.
+        if not legs["leg_strength_ok"]:
+            continue
+
+        # Dirty-departure trap: the strongest leg-out candle's wick pierced the
+        # distal edge of the base — equivalent to the zone dying at birth.
+        if not legs["clean_departure"]:
+            continue
 
         formation, zone_type = pair
         formations.append(

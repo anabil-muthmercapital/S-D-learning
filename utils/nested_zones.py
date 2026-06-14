@@ -5,25 +5,27 @@
 # Responsibilities
 # ----------------
 # find_nested_pairs() — identify pairs of same-type zones that overlap
-#                       significantly on the price axis.
-# merge_zones()       — collapse each overlapping pair into one merged zone.
+#                       significantly on the price axis (diagnostics).
+# merge_zones()       — collapse each connected component of transitively
+#                       overlapping same-type zones into one merged zone.
 #
 # Overlap ratio
 # -------------
 #   overlap       = max(0, min(prox1,prox2) − max(dist1,dist2))   [demand]
 #   overlap_ratio = overlap / min(width1, width2)
 #
-# If overlap_ratio >= NESTED_OVERLAP_MIN → the pair is nested and merged.
+# If overlap_ratio >= NESTED_OVERLAP_MIN → the pair is nested.
 #
-# Merge rule (same type only)
-# ---------------------------
-#   Demand — merged_proximal = min(prox1, prox2)  ← sharper (lower) entry
-#             merged_distal   = min(dist1, dist2)  ← safer  (lower) stop
-#   Supply — merged_proximal = max(prox1, prox2)  ← sharper (higher) entry
-#             merged_distal   = max(dist1, dist2)  ← safer  (higher) stop
+# Merge rule (same type only, generalised to N zones per component)
+# -----------------------------------------------------------------
+#   Demand — merged_proximal = min(proximals)   ← sharper (lower) entry
+#             merged_distal   = min(distals)     ← safer  (lower) stop
+#   Supply — merged_proximal = max(proximals)   ← sharper (higher) entry
+#             merged_distal   = max(distals)     ← safer  (higher) stop
 #
-# The merged dict inherits all fields from the *first* zone of the pair and
-# overwrites proximal/distal/zone_width.  A ``"nested": True`` flag is added.
+# The merged dict inherits all non-geometry fields from the FIRST zone in the
+# component (lowest original index) and overwrites proximal/distal/zone_width.
+# A ``"nested": True`` flag is added on every merged entry.
 #
 # Prerequisites
 # -------------
@@ -57,21 +59,29 @@ def _overlap_ratio(z1: dict, z2: dict) -> float:
     return overlap / min_width if min_width > 0 else 0.0
 
 
-def _merge_pair(z1: dict, z2: dict) -> dict:
-    """Return a new zone dict that is the merge of *z1* and *z2*.
+def _merge_many(group: list[dict]) -> dict:
+    """Return a single zone dict that is the merge of every zone in *group*.
 
-    All fields are copied from *z1*; only proximal, distal, and zone_width
-    are recomputed.  A ``nested`` flag is set to True.
+    Generalises ``_merge_pair`` to N same-type zones. All non-geometry fields
+    are inherited from the FIRST zone (the lowest original index in the
+    connected component, preserved by the caller).
     """
-    if z1["zone_type"] == "demand":
-        merged_prox = min(z1["proximal"], z2["proximal"])  # sharper (lower) entry
-        merged_dist = min(z1["distal"], z2["distal"])  # safer  (lower) stop
+    if len(group) == 1:
+        return group[0]
+
+    base = group[0]
+    proximals = [z["proximal"] for z in group]
+    distals = [z["distal"] for z in group]
+
+    if base["zone_type"] == "demand":
+        merged_prox = min(proximals)  # sharper (lower) entry
+        merged_dist = min(distals)  # safer  (lower) stop
     else:
-        merged_prox = max(z1["proximal"], z2["proximal"])  # sharper (higher) entry
-        merged_dist = max(z1["distal"], z2["distal"])  # safer  (higher) stop
+        merged_prox = max(proximals)  # sharper (higher) entry
+        merged_dist = max(distals)  # safer  (higher) stop
 
     return {
-        **z1,
+        **base,
         "proximal": merged_prox,
         "distal": merged_dist,
         "zone_width": round(abs(merged_prox - merged_dist), 5),
@@ -111,37 +121,59 @@ def find_nested_pairs(zones: list[dict]) -> list[tuple[int, int]]:
 
 
 def merge_zones(zones: list[dict]) -> list[dict]:
-    """Merge all nested pairs and return the de-duplicated zone list.
+    """Merge transitively-overlapping zones via connected components.
 
-    For every nested pair (i, j):
-      - zones[i] and zones[j] are removed from the output
-      - a new merged zone (inheriting from zones[i]) is appended
+    Why connected components
+    ------------------------
+    The previous "first pair wins" rule under-merged: a zone A overlapping
+    both B and C would only merge with B, leaving C as a separate (still
+    overlapping) zone. Building a graph of overlap edges and merging each
+    connected component into one zone guarantees that any cluster of mutually
+    or transitively overlapping same-type zones collapses to a single zone.
 
-    If a zone participates in more than one pair it is still only removed
-    once; the first pair it appears in drives the merge.
+    Procedure
+    ---------
+      1. Edges: same-type pairs (i, j) with overlap ≥ NESTED_OVERLAP_MIN.
+      2. Find connected components via union-find.
+      3. Each component of size > 1 → one merged zone (``_merge_many``,
+         ``nested = True``). Components of size 1 pass through unchanged.
 
-    Parameters
-    ----------
-    zones : list of zone dicts (already scored or not — doesn't matter).
-
-    Returns
-    -------
-    New list with overlapping pairs replaced by merged zones.
-    ``z["nested"] == True`` on every merged entry.
-    ``z["nested"]`` is absent (or False) on untouched zones.
+    Output order follows the lowest original index of each component, so the
+    result is stable and roughly preserves input order.
     """
-    pairs = find_nested_pairs(zones)
+    n = len(zones)
+    if n == 0:
+        return []
 
-    merged_idxs: set[int] = set()
-    merged_zones: list[dict] = []
+    # Union-find over zone indices.
+    parent = list(range(n))
 
-    for i, j in pairs:
-        # Each original index is only merged once (first pair wins)
-        if i in merged_idxs or j in merged_idxs:
-            continue
-        merged_zones.append(_merge_pair(zones[i], zones[j]))
-        merged_idxs.update([i, j])
+    def find(x: int) -> int:
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]  # path compression
+            x = parent[x]
+        return x
 
-    result = [z for k, z in enumerate(zones) if k not in merged_idxs]
-    result.extend(merged_zones)
+    def union(a: int, b: int) -> None:
+        ra, rb = find(a), find(b)
+        if ra != rb:
+            # Keep the smaller index as the root so component leader == first zone.
+            if ra < rb:
+                parent[rb] = ra
+            else:
+                parent[ra] = rb
+
+    for i, j in find_nested_pairs(zones):
+        union(i, j)
+
+    # Group indices by their root, preserving original order within each group.
+    components: dict[int, list[int]] = {}
+    for idx in range(n):
+        components.setdefault(find(idx), []).append(idx)
+
+    # Emit one zone per component, ordered by the component leader (lowest idx).
+    result: list[dict] = []
+    for root in sorted(components):
+        group = [zones[k] for k in components[root]]
+        result.append(_merge_many(group))
     return result

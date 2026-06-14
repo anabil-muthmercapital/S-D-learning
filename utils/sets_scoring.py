@@ -9,17 +9,17 @@
 #
 # S.E.T.S components (all already annotated by earlier phases)
 # ------------------------------------------------------------
-#   S — Strength      : derived here from dep_atr  (zone["dep_atr"])
+#   S — Strength      : derived here from departure_ratio  (zone["dep_ratio"])
 #   T — Time          : zone["time_score"]          (add_time_score)
 #   F — Freshness     : zone["freshness_score"]     (add_freshness)
 #   A — Alignment     : zone["trend_score"]         (add_trend_score)
 #   C — Curve         : zone["curve_score"]         (add_curve_score)
 #
-# Strength mapping (sd-concepts.md §14)
-# --------------------------------------
-#   dep_atr >= SETS_STRENGTH_HIGH  →  2  (explosive)
-#   dep_atr >= SETS_STRENGTH_LOW   →  1  (adequate)
-#   otherwise                      →  0  (weak)
+# Strength mapping (sd-concepts.md §14, methodology-literal)
+# -----------------------------------------------------------
+#   departure_ratio >= SETS_STRENGTH_RATIO_HIGH  →  2  (explosive)
+#   departure_ratio >= SETS_STRENGTH_RATIO_LOW   →  1  (adequate)
+#   otherwise                                    →  0  (weak)
 #
 # Rating thresholds
 # -----------------
@@ -31,24 +31,24 @@
 # -------------
 # zones must have already been annotated by (in order):
 #   add_freshness(), add_time_score(), add_curve_score(), add_trend_score()
-# Each zone must also have `dep_atr` from zone_detector.detect_zones().
+# Each zone must also have `dep_ratio` from zone_detector.detect_zones().
 # =============================================================================
 
 from __future__ import annotations
 
 from utils.config import (
-    SETS_STRENGTH_HIGH,
-    SETS_STRENGTH_LOW,
+    SETS_STRENGTH_RATIO_HIGH,
+    SETS_STRENGTH_RATIO_LOW,
     SETS_RATING_A,
     SETS_RATING_B,
 )
 
 
-def _strength_score(dep_atr: float) -> int:
-    """Map departure ATR-ratio to a 0-2 strength score."""
-    if dep_atr >= SETS_STRENGTH_HIGH:
+def _strength_score(departure_ratio: float) -> int:
+    """Map departure_ratio (departure / zone_width) to a 0-2 strength score."""
+    if departure_ratio >= SETS_STRENGTH_RATIO_HIGH:
         return 2
-    if dep_atr >= SETS_STRENGTH_LOW:
+    if departure_ratio >= SETS_STRENGTH_RATIO_LOW:
         return 1
     return 0
 
@@ -72,7 +72,7 @@ def add_sets_score(zones: list[dict]) -> list[dict]:
     ----------
     zones : list of zone dicts, already annotated by the four earlier scoring
             functions.  Each zone must have:
-              - dep_atr          (from detect_zones)
+              - dep_ratio        (from detect_zones)
               - time_score       (from add_time_score)
               - freshness_score  (from add_freshness)
               - curve_score      (from add_curve_score)
@@ -83,7 +83,7 @@ def add_sets_score(zones: list[dict]) -> list[dict]:
     The same list with each dict updated in-place.
     """
     for z in zones:
-        s = _strength_score(z["dep_atr"])
+        s = _strength_score(z["dep_ratio"])
         total = (
             s
             + z["time_score"]

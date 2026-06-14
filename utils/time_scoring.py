@@ -1,5 +1,5 @@
 # =============================================================================
-# utils/scoring.py — Zone quality scoring (Phase 9+)
+# utils/time_scoring.py — Zone quality scoring (Phase 9+)
 # =============================================================================
 #
 # Responsibilities

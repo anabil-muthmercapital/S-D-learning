@@ -25,7 +25,6 @@ from utils.config import (
     BASE_MIN_CANDLES,
     BASE_MAX_CANDLES,
     BASE_MAX_ATR_WIDTH,
-    BASE_COMPACTNESS_MAX,
 )
 
 # ---------------------------------------------------------------------------
@@ -79,17 +78,16 @@ def find_base_clusters(df: pd.DataFrame) -> list[dict]:
 
 
 def evaluate_cluster(df: pd.DataFrame, cluster: dict) -> dict:
-    """Compute tightness metrics for *cluster* and apply all three gates.
+    """Compute tightness metrics for *cluster* and apply both gates.
 
     Gates
     -----
-    1. min_count : cluster["count"] >= BASE_MIN_CANDLES
-    2. width     : (base_high - base_low) / avg_atr  <= BASE_MAX_ATR_WIDTH
-    3. compactness : (close_max - close_min) / base_width <= BASE_COMPACTNESS_MAX
+    1. min_count   : cluster["count"] >= BASE_MIN_CANDLES
+    2. compactness : (base_high - base_low) / avg_atr <= BASE_MAX_ATR_WIDTH
 
     Returns the original cluster dict extended with measured values and
     boolean gate results.  The top-level ``passed`` key is True only when
-    all three gates pass.
+    both gates pass.
     """
     for col in ("high", "low", "close", "atr"):
         if col not in df.columns:
@@ -106,17 +104,11 @@ def evaluate_cluster(df: pd.DataFrame, cluster: dict) -> dict:
     base_width = base_high - base_low
     avg_atr = sub["atr"].mean()
 
-    # Gate 2: zone height relative to local volatility
-    width_atr_ratio = base_width / avg_atr if avg_atr > 0 else float("inf")
-
-    # Gate 3: how spread are the closing prices within the zone?
-    # close_range / base_width → 0 = all closes identical, 1 = covers full range
-    close_range = sub["close"].max() - sub["close"].min()
-    compactness_ratio = close_range / base_width if base_width > 0 else 1.0
+    # Gate 2: zone height relative to local volatility (OTA compactness)
+    compactness_ratio = base_width / avg_atr if avg_atr > 0 else float("inf")
 
     min_count_passed = cluster["count"] >= BASE_MIN_CANDLES
-    width_passed = width_atr_ratio <= BASE_MAX_ATR_WIDTH
-    compactness_passed = compactness_ratio <= BASE_COMPACTNESS_MAX
+    compactness_passed = compactness_ratio <= BASE_MAX_ATR_WIDTH
 
     return {
         **cluster,
@@ -124,12 +116,10 @@ def evaluate_cluster(df: pd.DataFrame, cluster: dict) -> dict:
         "base_low": round(base_low, 5),
         "base_width": round(base_width, 5),
         "avg_atr": round(avg_atr, 5),
-        "width_atr_ratio": round(width_atr_ratio, 3),
         "compactness_ratio": round(compactness_ratio, 3),
         "min_count_passed": min_count_passed,
-        "width_passed": width_passed,
         "compactness_passed": compactness_passed,
-        "passed": min_count_passed and width_passed and compactness_passed,
+        "passed": min_count_passed and compactness_passed,
     }
 
 

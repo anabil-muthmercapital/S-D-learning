@@ -168,11 +168,6 @@ BASE_MAX_CANDLES: int = 5
 BASE_MAX_ATR_WIDTH: float = 2.5
 """Cluster height (base_high − base_low) / avg_ATR must not exceed this."""
 
-BASE_COMPACTNESS_MAX: float = 0.80
-"""(close_max − close_min) / base_width must not exceed this.
-Measures how tightly the cluster's closing prices are grouped.
-0 = all closes identical (perfectly calm), 1 = closes cover the full range."""
-
 # -----------------------------------------------------------------------------
 # Leg measurement thresholds (Phase 5)
 # -----------------------------------------------------------------------------
@@ -182,21 +177,25 @@ LEG_CANDLES: int = 3
 A single strong candle within this window is enough to qualify as a leg — the window is not a
 fixed count requirement."""
 
-LEG_ATR_MIN: float = 1.5
-"""A leg must displace at least this many ATRs to count as directional.
-Weaker moves are classified as 'flat' and the cluster is discarded."""
+LEG_STRONG_BODY_RATIO: float = 0.60
+"""Minimum body/range ratio for the strongest candle inside the leg-out window.
+Filters the 'weak-leg trap': a leg that drifts via small bodies is not institutional —
+it must contain at least one impulsive (full-body) candle in the chosen direction."""
 
 # -----------------------------------------------------------------------------
 # Departure thresholds (Phase 6)
 # -----------------------------------------------------------------------------
 
-DEPARTURE_CANDLES: int = 3
-"""Bars after the base end to scan for peak excursion."""
+# Window-divergence guard: legs_formation and zone_detector must scan the SAME
+# number of bars after the base. If they diverge, leg direction and departure
+# distance are measured over different windows → inconsistent zone validation.
+DEPARTURE_CANDLES: int = LEG_CANDLES
+"""Bars after the base end to scan for peak excursion (kept equal to LEG_CANDLES)."""
 
-DEPARTURE_ATR_MIN: float = 1.5
+DEPARTURE_ATR_MIN: float = 0.5
 """departure / avg_ATR must be >= this to pass the volatility-adjusted gate."""
 
-DEPARTURE_RATIO_MIN: float = 1.0
+DEPARTURE_RATIO_MIN: float = 2.0
 """departure / zone_width must be >= this to pass the zone-relative gate."""
 
 # -----------------------------------------------------------------------------
@@ -253,11 +252,14 @@ A bar is a swing high if its high is the maximum over [i-w .. i+w]; likewise for
 # S.E.T.S composite scoring (Phase 12)
 # -----------------------------------------------------------------------------
 
-SETS_STRENGTH_HIGH: float = 3.0
-"""dep_atr >= this  →  strength score 2 (explosive departure)."""
+SETS_STRENGTH_RATIO_HIGH: float = 3.0
+"""departure_ratio (dep_ratio = departure / zone_width) >= this  →  strength score 2 (explosive).
+Matches the methodology's example: departure_ratio = 3.75 → score 2."""
 
-SETS_STRENGTH_LOW: float = 1.5
-"""dep_atr >= this (and < SETS_STRENGTH_HIGH)  →  strength score 1."""
+SETS_STRENGTH_RATIO_LOW: float = 2.0
+"""departure_ratio >= this (and < SETS_STRENGTH_RATIO_HIGH)  →  strength score 1.
+Aligned with DEPARTURE_RATIO_MIN so every zone that cleared the departure gate
+earns at least 1 point on Strength."""
 
 SETS_RATING_A: int = 7
 """SETS total >= this  →  ★★★ A-setup (take it)."""

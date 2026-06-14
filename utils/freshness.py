@@ -45,6 +45,48 @@ from utils.config import (
 )
 
 # ---------------------------------------------------------------------------
+# Step 0 — single source of truth for zone-death detection
+# ---------------------------------------------------------------------------
+
+
+def find_death_bar(df: pd.DataFrame, zone: dict) -> int | None:
+    """Return the iloc of the bar where *zone* dies, or ``None`` if still alive.
+
+    A zone dies on the first bar (after its departure window) whose close
+    is beyond the distal line:
+
+      * demand : close[i] < distal
+      * supply : close[i] > distal
+
+    Scanning starts at ``zone["end"] + DEPARTURE_CANDLES + 1`` — the same
+    point used by ``count_touches`` — so both functions agree on lifespan.
+
+    Parameters
+    ----------
+    df   : enriched DataFrame (must have ``close`` column).
+    zone : dict with ``end``, ``zone_type``, ``distal``.
+
+    Returns
+    -------
+    int  — bar index where the zone broke, OR
+    None — zone is still alive at the right edge of the data.
+    """
+    distal = zone["distal"]
+    zone_type = zone["zone_type"]
+    scan_start = zone["end"] + DEPARTURE_CANDLES + 1
+
+    close = df["close"].to_numpy()
+    n = len(df)
+
+    for i in range(scan_start, n):
+        if zone_type == "demand" and close[i] < distal:
+            return i
+        if zone_type == "supply" and close[i] > distal:
+            return i
+    return None
+
+
+# ---------------------------------------------------------------------------
 # Step 1 — touch counter for one zone
 # ---------------------------------------------------------------------------
 
@@ -61,27 +103,20 @@ def count_touches(df: pd.DataFrame, zone: dict) -> int:
     Returns
     -------
     int — number of candles whose wick re-entered the zone before it died.
-          Scanning stops when the zone dies (close beyond distal).
+          Scanning stops at the zone's death bar (shared with find_death_bar).
     """
     proximal = zone["proximal"]
-    distal = zone["distal"]
     zone_type = zone["zone_type"]
     scan_start = zone["end"] + DEPARTURE_CANDLES + 1
 
     high = df["high"].to_numpy()
     low = df["low"].to_numpy()
-    close = df["close"].to_numpy()
-    n = len(df)
+
+    death = find_death_bar(df, zone)
+    stop = death if death is not None else len(df)
 
     touches = 0
-    for i in range(scan_start, n):
-        # zone death — closed beyond the distal line
-        if zone_type == "demand" and close[i] < distal:
-            break
-        if zone_type == "supply" and close[i] > distal:
-            break
-
-        # touch — wick entered the zone box
+    for i in range(scan_start, stop):
         if zone_type == "demand" and low[i] <= proximal:
             touches += 1
         elif zone_type == "supply" and high[i] >= proximal:

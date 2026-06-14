@@ -6,15 +6,17 @@
 #   - Normalise index to UTC, lowercase columns
 #   - Align all timeframes to a common start date (latest first bar wins)
 #   - Auto-download via data_downloader if CSV files are missing
+#   - Optionally enrich (CandlePrimitives + ATR) on full history BEFORE trimming
+#     so Wilder's ATR has its full pre-roll warm-up.
 #
 # Public API:
-#   load_timeframe(symbol, tf)              → pd.DataFrame
-#   load_all_timeframes(symbol, align)      → dict[str, pd.DataFrame]
+#   load_timeframe(symbol, tf)                        → pd.DataFrame
+#   load_all_timeframes(symbol, align, warmup_bars)   → dict[str, pd.DataFrame]
+#   load_enriched_timeframes(symbol, ...)             → dict[str, pd.DataFrame]
 #
 # Usage (notebook / production):
-#   from utils.data_loader import load_all_timeframes
-#   data = load_all_timeframes("AAPL")              # aligned, auto-download if missing
-#   data = load_all_timeframes("AAPL", align=False) # raw, unaligned
+#   from utils.data_loader import load_enriched_timeframes
+#   data = load_enriched_timeframes("AAPL")          # ATR warmed on FULL history
 # =============================================================================
 
 from __future__ import annotations
@@ -25,6 +27,7 @@ from pathlib import Path
 import pandas as pd
 
 from utils.config import DEFAULT_TIMEFRAMES
+from utils.models import CandlePrimitives, add_atr
 
 logger = logging.getLogger(__name__)
 
@@ -141,16 +144,24 @@ def load_all_timeframes(
     timeframes: list[str] | None = None,
     align: bool = True,
     data_dir: Path | str | None = None,
+    warmup_bars: int = 0,
 ) -> dict[str, pd.DataFrame]:
     """Load all timeframes for *symbol*, optionally aligned to a common start.
 
     Parameters
     ----------
-    symbol:     ticker string, e.g. ``"AAPL"``
-    timeframes: list of TF keys to load; defaults to ``TIMEFRAMES``
-    align:      if ``True`` (default) all DataFrames are trimmed so their
-                first bar is the same date (the latest first-bar across TFs)
-    data_dir:   override the default ``data/raw/`` directory
+    symbol:      ticker string, e.g. ``"AAPL"``
+    timeframes:  list of TF keys to load; defaults to ``TIMEFRAMES``
+    align:       if ``True`` (default) all DataFrames are trimmed so their
+                 first "live" bar is the same date (the latest first-bar across TFs)
+    data_dir:    override the default ``data/raw/`` directory
+    warmup_bars: when ``align=True``, keep this many extra bars BEFORE the common
+                 start on each timeframe so downstream indicators (ATR, EMAs, …)
+                 can warm up on real history. Safe: only past bars are kept — no
+                 look-ahead is introduced. The true common-start timestamp is
+                 stored on ``df.attrs["common_start"]`` so callers can mask the
+                 warm-up region after indicator computation, e.g.:
+                     df_live = df[df.index >= df.attrs["common_start"]]
 
     Returns
     -------
@@ -168,7 +179,85 @@ def load_all_timeframes(
 
     if align and len(data) > 1:
         common_start = max(df.index[0] for df in data.values())
-        data = {tf: df[df.index >= common_start] for tf, df in data.items()}
-        logger.info("Aligned %s to common start: %s", symbol, common_start.date())
+        aligned: dict[str, pd.DataFrame] = {}
+        for tf, df in data.items():
+            if warmup_bars > 0:
+                # Keep up to `warmup_bars` rows strictly BEFORE common_start
+                # (purely historical — no future leak).
+                pre = df.index < common_start
+                pre_idx = df.index[pre][-warmup_bars:]
+                cut = pre_idx[0] if len(pre_idx) else common_start
+                sub = df[df.index >= cut].copy()
+            else:
+                sub = df[df.index >= common_start].copy()
+            sub.attrs["common_start"] = common_start
+            aligned[tf] = sub
+        data = aligned
+        logger.info(
+            "Aligned %s to common start: %s (warmup_bars=%d)",
+            symbol,
+            common_start.date(),
+            warmup_bars,
+        )
 
     return data
+
+
+def load_enriched_timeframes(
+    symbol: str,
+    timeframes: list[str] | None = None,
+    align: bool = True,
+    data_dir: Path | str | None = None,
+) -> dict[str, pd.DataFrame]:
+    """Load + enrich all timeframes with ATR computed on FULL history before trim.
+
+    Pipeline per timeframe (in this exact order):
+        1. Load raw OHLCV (unaligned).
+        2. ``CandlePrimitives.enrich_dataframe`` on the full series.
+        3. ``add_atr`` on the full series — Wilder's smoothing now gets its
+           full pre-roll warm-up.
+        4. ONLY THEN trim to the common start across timeframes (if align=True).
+
+    Why this matters
+    ----------------
+    The previous workflow (`load_all_timeframes` + `add_atr` in the notebook)
+    trimmed first, so the first ~14 bars after `common_start` had an unstable
+    ATR — worst on the weekly TF where years of pre-roll history were thrown
+    away. Computing indicators on full history first fixes that.
+
+    No look-ahead: trimming only the START of the series uses purely past data
+    for warm-up, so no future information can leak into earlier bars.
+
+    Parameters
+    ----------
+    symbol, timeframes, align, data_dir : see ``load_all_timeframes``.
+
+    Returns
+    -------
+    dict[str, pd.DataFrame] — each DataFrame already carries the columns
+    added by ``CandlePrimitives.enrich_dataframe`` plus an ``atr`` column.
+    """
+    tfs = timeframes or TIMEFRAMES
+    root = Path(data_dir) if data_dir else DEFAULT_DATA_DIR
+
+    # Load every TF on its FULL history (unaligned) so indicators warm up properly.
+    raw = load_all_timeframes(symbol, timeframes=tfs, align=False, data_dir=root)
+
+    enriched: dict[str, pd.DataFrame] = {
+        tf: add_atr(CandlePrimitives.enrich_dataframe(df)) for tf, df in raw.items()
+    }
+
+    if align and len(enriched) > 1:
+        common_start = max(df.index[0] for df in enriched.values())
+        enriched = {
+            tf: df[df.index >= common_start].copy() for tf, df in enriched.items()
+        }
+        for df in enriched.values():
+            df.attrs["common_start"] = common_start
+        logger.info(
+            "Enriched + aligned %s to common start: %s",
+            symbol,
+            common_start.date(),
+        )
+
+    return enriched
