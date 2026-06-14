@@ -4,22 +4,37 @@
 #
 # Responsibilities
 # ----------------
-# 1. STEP 1 — direction filter:   curve_third + point-in-time HTF/ITF trend
-#                                 decide whether a zone is tradeable.
-# 2. STEP 2 — trade levels:       entry = proximal, SL beyond distal (with
+# 1. STEP 1 — feature annotation: compute curve/trend context per zone
+#                                 (curve_third, htf_trend_at_formation,
+#                                  itf_trend_at_formation, trend_aligned).
+#                                 These are FEATURES — NOT a filter. Every
+#                                 zone proceeds to STEP 2.
+# 2. STEP 2 — trade levels:       direction is derived from zone_type
+#                                 (demand→long, supply→short). entry =
+#                                 proximal, SL beyond distal (with
 #                                 ATR_STOP_BUFFER), TP at RR_RATIO × risk.
 # 3. STEP 3 — triple-barrier sim: walk forward bar-by-bar to find which
 #                                 of {SL, TP, vertical barrier} is hit first.
 # 4. Output a `label` ∈ {0, 1, None} suitable for supervised training plus
 #    a rich set of audit fields (entry_bar, exit_bar, exit_reason, bars_held,
-#    pnl_r, timeout_pnl_r, ignore_reason, …).
+#    pnl_r, timeout_pnl_r, trend_aligned, …).
+#
+# Why label every zone (no hard direction filter)
+# ------------------------------------------------
+# A pre-filter that discards "against-trend" zones is the textbook recipe
+# for survivorship bias: the model never sees the losing population the
+# filter quietly threw away. Instead we trade EVERY zone the proximal is
+# touched on and expose the discretionary rule ("demand+low+HTF-uptrend",
+# …) as a single boolean feature `trend_aligned`. The model can learn the
+# filter — or learn that aligned trades win, but unaligned ones also win
+# at acceptable rates with certain other features present.
 #
 # Lookahead safety (the whole point of this module)
 # -------------------------------------------------
 # The label necessarily looks forward — that is fine, it is the *target*.
 # What must NEVER look forward is any feature or decision that goes into
 # the trade:
-#   * direction filter uses HTF/ITF swings strictly BEFORE the zone's
+#   * trend features use HTF/ITF swings strictly BEFORE the zone's
 #     formation timestamp (reuses trend_alignment.find_swings + trend_at,
 #     which already enforce `idx < pos`).
 #   * the HTF/ITF bar mapped to the zone is the last bar whose timestamp
@@ -110,51 +125,42 @@ def _trend_at_timestamp(
 
 
 # ---------------------------------------------------------------------------
-# STEP 1 — direction filter
+# STEP 1 — trend-context features (NOT a filter)
 # ---------------------------------------------------------------------------
 
 
-def _decide_direction(
-    z: dict,
+def _trend_aligned(
+    zone_type: str,
+    curve_third: str,
     htf_trend: str | None,
     itf_trend: str,
-) -> tuple[bool, str | None, str]:
-    """Return (tradeable, direction, ignore_reason).
+) -> bool:
+    """Encode the discretionary "trade with the trend" rule as a feature.
 
-    Curve-position rules (from the spec):
-      * high  : need HTF downtrend + supply  → short
-      * low   : need HTF uptrend   + demand  → long
-      * mid   : need ITF aligned   (uptrend+demand=long, downtrend+supply=short)
-      * n/a   : ignore (we cannot place the zone on the curve)
+    Returns True when the zone matches the teammate's original rule that
+    used to gate the trade. Now this is a single boolean handed to the
+    model instead of a hard reject — so the model can learn whether
+    alignment actually matters, conditional on other features.
+
+    Rules (mirror of the old _decide_direction):
+      * demand + curve low  + HTF uptrend   → aligned
+      * supply + curve high + HTF downtrend → aligned
+      * demand + curve mid  + ITF uptrend   → aligned
+      * supply + curve mid  + ITF downtrend → aligned
+      * everything else                     → not aligned
+
+    When the relevant HTF is unavailable (htf_trend is None) the high/low
+    rules cannot be satisfied — returns False.
     """
-    third = z.get("curve_third", "n/a")
-    ztype = z["zone_type"]
-
-    if third == "n/a":
-        return False, None, "curve_third=n/a"
-
-    if third == "high":
-        if htf_trend is None:
-            return False, None, "no HTF available for curve_third=high"
-        if htf_trend == "downtrend" and ztype == "supply":
-            return True, "short", ""
-        return False, None, f"curve_third=high but HTF={htf_trend}/zone={ztype}"
-
-    if third == "low":
-        if htf_trend is None:
-            return False, None, "no HTF available for curve_third=low"
-        if htf_trend == "uptrend" and ztype == "demand":
-            return True, "long", ""
-        return False, None, f"curve_third=low but HTF={htf_trend}/zone={ztype}"
-
-    if third == "mid":
-        if itf_trend == "uptrend" and ztype == "demand":
-            return True, "long", ""
-        if itf_trend == "downtrend" and ztype == "supply":
-            return True, "short", ""
-        return False, None, f"curve_third=mid but ITF={itf_trend}/zone={ztype}"
-
-    return False, None, f"unknown curve_third={third!r}"
+    if curve_third == "low" and zone_type == "demand":
+        return htf_trend == "uptrend"
+    if curve_third == "high" and zone_type == "supply":
+        return htf_trend == "downtrend"
+    if curve_third == "mid" and zone_type == "demand":
+        return itf_trend == "uptrend"
+    if curve_third == "mid" and zone_type == "supply":
+        return itf_trend == "downtrend"
+    return False
 
 
 # ---------------------------------------------------------------------------
@@ -163,7 +169,11 @@ def _decide_direction(
 
 
 def _compute_levels(z: dict) -> dict:
-    """Return entry/stop/tp/risk for a tradeable zone.
+    """Return direction/entry/stop/tp/risk for a zone.
+
+    Direction is mechanical:
+      * demand zone → long
+      * supply zone → short
 
     For long  (demand) : SL just BELOW the distal (base_low),
                           TP = entry + RR_RATIO × risk.
@@ -174,7 +184,7 @@ def _compute_levels(z: dict) -> dict:
     formed the base — a single-tick spike beyond the distal would otherwise
     blow through every trade.
     """
-    direction = z["direction"]
+    direction = "long" if z["zone_type"] == "demand" else "short"
     proximal = float(z["proximal"])
     distal = float(z["distal"])
     avg_atr = float(z["avg_atr"])
@@ -192,6 +202,7 @@ def _compute_levels(z: dict) -> dict:
         tp = entry - RR_RATIO * risk
 
     return {
+        "direction": direction,
         "entry": round(entry, 5),
         "stop": round(stop, 5),
         "tp": round(tp, 5),
@@ -370,7 +381,11 @@ def label_zones(
     max_hold_bars: int = DEFAULT_MAX_HOLD_BARS,
     htf_ltf_map: dict[str, tuple[str, str | None]] | None = None,  # noqa: ARG001
 ) -> list[dict]:
-    """Annotate every zone with direction-filter, trade-level and label fields.
+    """Annotate every zone with trend-context features and a triple-barrier label.
+
+    Every zone with at least a proximal touch gets a 0/1 label — there is
+    NO direction-based pre-filter. The discretionary trend rule is
+    preserved as the boolean feature `trend_aligned`.
 
     Parameters
     ----------
@@ -378,14 +393,30 @@ def label_zones(
                     must already carry curve_third, zone_type, proximal,
                     distal, avg_atr, start, end).
     ltf_df        : enriched LTF DataFrame for the same timeframe.
-    itf_df        : enriched ITF DataFrame, or None (mid-curve filter falls
-                    back to "sideways" → most mid zones get rejected).
-    htf_df        : enriched HTF DataFrame, or None (high/low-curve zones
-                    are rejected with reason "no HTF available").
+    itf_df        : enriched ITF DataFrame, or None (mid-curve trend
+                    feature falls back to "sideways").
+    htf_df        : enriched HTF DataFrame, or None (high/low-curve trend
+                    feature falls back to "n/a"; trend_aligned then False).
     max_hold_bars : vertical barrier in LTF bars.
     htf_ltf_map   : retained for API compatibility; the caller already
                     selects which frames to pass in, so this parameter is
                     unused inside the function.
+
+    Fields added per zone
+    ---------------------
+    Features (model inputs):
+        curve_third                 (already present — untouched)
+        itf_trend_at_formation      uptrend | downtrend | sideways
+        htf_trend_at_formation      uptrend | downtrend | sideways | n/a
+        trend_aligned               bool — the old discretionary rule
+
+    Trade plan:
+        direction                   long | short  (derived from zone_type)
+        entry, stop, tp, risk
+
+    Label / audit:
+        entry_bar, exit_bar, exit_reason ∈ {tp, sl, timeout, no_trade}
+        bars_held, label ∈ {1, 0, None}, pnl_r, timeout_pnl_r
 
     Returns
     -------
@@ -419,7 +450,7 @@ def label_zones(
         # iloc `z["end"]` in LTF terms. We map THIS timestamp onto ITF/HTF.
         formation_ts = ltf_index[z["end"]]
 
-        # ---- ITF trend -------------------------------------------------------
+        # ---- ITF trend feature -----------------------------------------------
         if itf_index is not None:
             # Lookahead-safe: _trend_at_timestamp only uses swings strictly
             # before the bar at-or-before formation_ts.
@@ -429,7 +460,7 @@ def label_zones(
         else:
             itf_trend = "sideways"
 
-        # ---- HTF trend -------------------------------------------------------
+        # ---- HTF trend feature -----------------------------------------------
         if htf_index is not None:
             htf_trend: str | None = _trend_at_timestamp(
                 htf_df, htf_sh, htf_sl, htf_high, htf_low, formation_ts
@@ -439,32 +470,11 @@ def label_zones(
 
         z["itf_trend_at_formation"] = itf_trend
         z["htf_trend_at_formation"] = htf_trend if htf_trend is not None else "n/a"
+        z["trend_aligned"] = _trend_aligned(
+            z["zone_type"], z.get("curve_third", "n/a"), htf_trend, itf_trend
+        )
 
-        # ---- STEP 1: direction filter ---------------------------------------
-        tradeable, direction, reason = _decide_direction(z, htf_trend, itf_trend)
-        z["tradeable"] = tradeable
-        z["direction"] = direction
-        z["ignore_reason"] = reason
-
-        if not tradeable:
-            z.update(
-                {
-                    "entry": None,
-                    "stop": None,
-                    "tp": None,
-                    "risk": None,
-                    "entry_bar": None,
-                    "exit_bar": None,
-                    "exit_reason": "filtered",
-                    "bars_held": 0,
-                    "label": None,
-                    "pnl_r": None,
-                    "timeout_pnl_r": None,
-                }
-            )
-            continue
-
-        # ---- STEP 2: trade levels -------------------------------------------
+        # ---- STEP 2: trade levels (direction from zone_type) ----------------
         levels = _compute_levels(z)
         z.update(levels)
 
