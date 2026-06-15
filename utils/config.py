@@ -38,16 +38,16 @@ WATCHLIST: dict[str, list[str]] = {
         "SOL-USD",
         "BNB-USD",
         "XRP-USD",
-        "ADA-USD",
-        "AVAX-USD",
-        "DOT-USD",
-        "LINK-USD",
-        "DOGE-USD",
-        "LTC-USD",
-        "MATIC-USD",
-        "ATOM-USD",
-        "NEAR-USD",
-        "UNI-USD",
+        # "ADA-USD",
+        # "AVAX-USD",
+        # "DOT-USD",
+        # "LINK-USD",
+        # "DOGE-USD",
+        # "LTC-USD",
+        # "MATIC-USD",
+        # "ATOM-USD",
+        # "NEAR-USD",
+        # "UNI-USD",
     ],
     "us_stocks": [
         "AAPL",
@@ -88,7 +88,7 @@ WATCHLIST: dict[str, list[str]] = {
         "^IXIC",
         "^DJI",
         "^RUT",
-        "^VIX",
+        # "^VIX",
     ],
     "fx": [
         "EURUSD=X",
@@ -98,6 +98,9 @@ WATCHLIST: dict[str, list[str]] = {
         "USDCAD=X",
         "USDCHF=X",
         "NZDUSD=X",
+        "EURJPY=X",
+        "GBPJPY=X",
+        "AUDJPY=X",
     ],
     "commodities": [
         "GC=F",  # Gold
@@ -108,8 +111,8 @@ WATCHLIST: dict[str, list[str]] = {
         "HG=F",  # Copper
     ],
     "macro": [
-        "^TNX",  # US 10Y Treasury Yield
-        "DX-Y.NYB",  # US Dollar Index (DXY)
+        # "^TNX",  # US 10Y Treasury Yield
+        # "DX-Y.NYB",  # US Dollar Index (DXY)
     ],
 }
 

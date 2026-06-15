@@ -54,6 +54,7 @@ from utils.base_detector import detect_bases
 from utils.config import HTF_REF, WATCHLIST
 from utils.data_loader import load_enriched_timeframes
 from utils.feature_engine import (
+    AUDIT_COLS,
     FEATURE_COLS,
     META_COLS,
     TARGET_COL,
@@ -63,6 +64,7 @@ from utils.freshness import add_freshness
 from utils.htf_range import add_curve_score
 from utils.labeler import DEFAULT_HTF_LTF_MAP, DEFAULT_MAX_HOLD_BARS, label_zones
 from utils.legs_formation import detect_formations
+from utils.regime import compute_regime_series
 from utils.sets_scoring import add_sets_score
 from utils.time_scoring import add_time_score
 from utils.trend_alignment import add_trend_score
@@ -165,6 +167,18 @@ def _process_symbol(
 
     asset_cls = ASSET_CLASS.get(symbol, "unknown")
 
+    # Regime is a macro/HTF concept — compute ONCE per symbol from its 1d
+    # series (expanding-window GMM, lookahead-safe). The resulting Series
+    # is shared across all LTFs for this symbol; each zone samples it via
+    # the project-standard last-bar-at-or-before rule.
+    regime_series: pd.Series | None = None
+    if "1d" in data:
+        try:
+            regime_series = compute_regime_series(data["1d"])
+        except Exception as exc:  # noqa: BLE001 — isolate per-symbol failure
+            skipped.append(f"{symbol}: regime computation failed ({exc!s})")
+            regime_series = None
+
     for ltf in LTFS:
         missing = REQUIRED_TFS[ltf] - set(data)
         if missing:
@@ -214,7 +228,14 @@ def _process_symbol(
         no_trade[ltf] += sum(1 for z in zones if z.get("label") is None)
 
         # ---- Feature extraction ---------------------------------------------
-        feats = build_features(zones, ltf_df)
+        feats = build_features(
+            zones,
+            ltf_df,
+            symbol=symbol,
+            asset_class=asset_cls,
+            timeframe=ltf,
+            regime_series=regime_series,
+        )
         if feats.empty:
             skipped.append(f"{symbol}/{ltf}: zero labelled zones")
             continue
@@ -359,7 +380,7 @@ def main() -> int:
     if not all_frames:
         print("\nNo feature frames produced — aborting before write.")
         _print_audit(
-            pd.DataFrame(columns=FEATURE_COLS + [TARGET_COL] + META_COLS),
+            pd.DataFrame(columns=FEATURE_COLS + [TARGET_COL] + META_COLS + AUDIT_COLS),
             no_trade_total,
             all_skipped,
             failures,

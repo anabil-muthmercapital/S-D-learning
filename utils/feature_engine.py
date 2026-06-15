@@ -32,7 +32,9 @@ from __future__ import annotations
 
 import pandas as pd
 
-from utils.config import DEPARTURE_CANDLES, FRESHNESS_SCORE_TABLE
+from utils.config import DEPARTURE_CANDLES
+from utils import costs
+from utils import regime as regime_mod
 
 # ---------------------------------------------------------------------------
 # Encoders for categorical features
@@ -51,64 +53,55 @@ _TREND_CODE: dict[str, int] = {
     "n/a": 0,
 }
 
+# Asset class encoded as a stable integer. "unknown" → -1 sentinel.
+# Order is arbitrary but FIXED — do not reorder once the first dataset is
+# built, as that would invalidate stored models.
+_ASSET_CLASS_CODE: dict[str, int] = {
+    "crypto": 0,
+    "fx": 1,
+    "us_stocks": 2,
+    "etfs": 3,
+    "indices": 4,
+    "commodities": 5,
+    "macro": 6,
+    "unknown": -1,
+}
+
+# Timeframe encoded in ascending duration order (natural ordinal).
+_TIMEFRAME_CODE: dict[str, int] = {
+    "1h": 0,
+    "4h": 1,
+    "1d": 2,
+    "1wk": 3,
+}
+
 
 # ---------------------------------------------------------------------------
-# Recomputed-safe freshness (this is the lookahead-critical piece)
+# NOTE — why touches_before_entry / freshness_score_at_entry are gone
 # ---------------------------------------------------------------------------
-
-
-def _touches_before_entry(
-    ltf_df: pd.DataFrame,
-    zone: dict,
-    entry_bar: int,
-) -> int:
-    """Count wick re-entries into *zone* from the departure window up to
-    (and INCLUDING) ``entry_bar``.
-
-    Why this exists
-    ---------------
-    The stored ``touches`` / ``freshness_score`` from ``freshness.count_touches``
-    scan the entire post-departure life of the zone — i.e. they include
-    touches that happen AFTER entry. Using them as a model feature would
-    leak future information. This helper recomputes the same definition but
-    bounded by entry_bar (exclusive of the search end via range, so
-    ``entry_bar`` itself IS counted) so the feature only reflects what was
-    knowable at the moment the trade opened.
-
-    Touch definition (same as freshness.count_touches):
-      * demand : low[i]  <= proximal
-      * supply : high[i] >= proximal
-    """
-    proximal = zone["proximal"]
-    zone_type = zone["zone_type"]
-    scan_start = zone["end"] + DEPARTURE_CANDLES + 1
-    # +1 so the entry bar itself is counted as a touch (it IS the touch that
-    # triggers entry — knowable at entry time, no lookahead).
-    scan_stop = entry_bar + 1
-
-    if scan_stop <= scan_start:
-        return 0
-
-    if zone_type == "demand":
-        wick = ltf_df["low"].iloc[scan_start:scan_stop].to_numpy()
-        # numpy bool sum = touch count
-        return int((wick <= proximal).sum())
-
-    wick = ltf_df["high"].iloc[scan_start:scan_stop].to_numpy()
-    return int((wick >= proximal).sum())
-
-
-def _freshness_at_entry(touches: int) -> int:
-    """Same mapping as freshness.add_freshness — 0→2, 1→1, 2+→0."""
-    return FRESHNESS_SCORE_TABLE.get(touches, 0)
-
-
+# These features were removed because they have ZERO variance: every single
+# labelled row has touches_before_entry = 1 (always) and therefore
+# freshness_score_at_entry = 1 (always). The reason is structural:
+# simulate_triple_barrier (labeler.py) only opens a trade on the FIRST bar
+# that wicks into the proximal after the departure window. That first wicking
+# bar is, by definition, touch #1. A second proximal touch would only be
+# recorded if the first one was somehow skipped — but the labeler would have
+# already opened the trade at bar #1, so a second touch is only reachable
+# on a different trade. Zero-variance columns carry no information and should
+# never be fed to a model.
 # ---------------------------------------------------------------------------
 # Per-zone feature row
 # ---------------------------------------------------------------------------
 
 
-def _build_row(z: dict, ltf_df: pd.DataFrame) -> dict:
+def _build_row(
+    z: dict,
+    ltf_df: pd.DataFrame,
+    symbol: str,
+    asset_class: str,
+    timeframe: str,
+    regime_series: pd.Series | None = None,
+) -> dict:
     """Build one feature row for a labelled zone.
 
     Every value here must be computable from information available at or
@@ -117,12 +110,6 @@ def _build_row(z: dict, ltf_df: pd.DataFrame) -> dict:
     """
     entry_bar = z["entry_bar"]
     avg_atr = float(z["avg_atr"])
-
-    # --- recomputed freshness (bounded by entry_bar — NOT by death) -------
-    # _touches_before_entry slices ltf_df at [end+L+1 : entry_bar+1], all of
-    # which are bars that have already closed by the moment of entry. Safe.
-    touches_be = _touches_before_entry(ltf_df, z, entry_bar)
-    freshness_be = _freshness_at_entry(touches_be)
 
     # --- relative / timing features (all derivable at entry) ---------------
     # bars_to_entry: number of bars price spent away from the zone before
@@ -134,9 +121,18 @@ def _build_row(z: dict, ltf_df: pd.DataFrame) -> dict:
     risk = float(z["risk"])
     tp = float(z["tp"])
     entry = float(z["entry"])
+    stop = float(z["stop"])
     # Risk/TP expressed in ATR units → cross-symbol / cross-regime comparable.
     risk_atr = risk / avg_atr if avg_atr > 0 else 0.0
     tp_distance_atr = abs(tp - entry) / avg_atr if avg_atr > 0 else 0.0
+
+    # ---- audit-only post-entry fields (NOT features) --------------------
+    # exit_bar may be None on no_trade rows; those are filtered out by the
+    # caller (label is None), but be defensive anyway.
+    exit_bar = z.get("exit_bar")
+    exit_time = ltf_df.index[exit_bar] if exit_bar is not None else pd.NaT
+    pnl_r = z.get("pnl_r")
+    timeout_pnl_r = z.get("timeout_pnl_r")
 
     # --- categorical encodings ---------------------------------------------
     curve_third = z.get("curve_third", "n/a")
@@ -144,6 +140,18 @@ def _build_row(z: dict, ltf_df: pd.DataFrame) -> dict:
     # curve_pos can be None when the zone fell outside the HTF range; use
     # -1.0 sentinel so trees can still split on "missing" cleanly.
     curve_pos_num = float(curve_pos) if curve_pos is not None else -1.0
+
+    # ---- regime feature (point-in-time lookup on the daily frame) -------
+    # regime_series is a daily Series of {-1, 0, 1, 2} produced upstream by
+    # utils.regime.compute_regime_series (expanding-window GMM, refit on
+    # past data only). regime_at maps formation_time to the last daily bar
+    # with timestamp <= formation_time — same rule htf_trend/curve_score use.
+    # When no series is provided (e.g. unit tests), default to -1 = unknown.
+    formation_ts = ltf_df.index[z["end"]]
+    if regime_series is not None and len(regime_series) > 0:
+        regime_code = regime_mod.regime_at(regime_series, formation_ts)
+    else:
+        regime_code = -1
 
     return {
         # ---- geometry / departure (known at formation, before entry) -----
@@ -168,9 +176,29 @@ def _build_row(z: dict, ltf_df: pd.DataFrame) -> dict:
         "htf_trend_code": _TREND_CODE.get(z.get("htf_trend_at_formation", "n/a"), 0),
         # ---- zone type ---------------------------------------------------
         "is_demand": 1 if z["zone_type"] == "demand" else 0,
-        # ---- recomputed freshness (the key lookahead-safe rebuild) -------
-        "touches_before_entry": touches_be,
-        "freshness_score_at_entry": freshness_be,
+        # ---- cost-awareness features (knowable at entry, no lookahead) ---
+        #
+        # Design note: `label` is the GROSS win/loss target (did price reach
+        # TP before SL?). It deliberately ignores costs so the model learns
+        # pure edge. These three features then let the model DOWN-WEIGHT
+        # expensive trades on its own, without hard-coding a cost filter.
+        #
+        # expected_cost_r: round-trip transaction cost in R-multiples at
+        #   cost_multiplier=1.0 (base case). Computed from entry price +
+        #   risk_price + asset class — all known at entry time, zero
+        #   lookahead. A trade needs gross_r > expected_cost_r to be
+        #   net-profitable; the model can learn this threshold.
+        "expected_cost_r": costs.expected_cost_r(
+            asset_class, symbol, entry, risk, cost_multiplier=1.0
+        ),
+        # asset_class_code / timeframe_code: stable integer encodings so the
+        # model can learn asset-class and timeframe interaction effects
+        # (e.g. crypto+1h has structurally higher cost_r than etfs+1d).
+        "asset_class_code": _ASSET_CLASS_CODE.get(asset_class, -1),
+        "timeframe_code": _TIMEFRAME_CODE.get(timeframe, -1),
+        # ---- market regime (GMM, expanding-window, lookahead-safe) -------
+        # 0=calm  1=medium  2=turbulent  -1=warmup/unknown.
+        "regime_code": int(regime_code),
         # ---- relative timing / risk (all knowable at entry) --------------
         "bars_to_entry": int(bars_to_entry),
         "risk_atr": float(risk_atr),
@@ -184,6 +212,22 @@ def _build_row(z: dict, ltf_df: pd.DataFrame) -> dict:
         "entry_time": ltf_df.index[entry_bar],
         "zone_type": z["zone_type"],
         "direction": z["direction"],
+        # ---- AUDIT (post-entry; for backtest / analysis only) ------------
+        # These columns are deliberately NOT in FEATURE_COLS — the training
+        # code selects via df[FEATURE_COLS] so they cannot leak into models.
+        # They exist so backtest.py can convert price-based costs to R,
+        # estimate trade occupancy windows, and respect timeout_pnl_r.
+        "entry": entry,
+        "stop": stop,
+        "tp": tp,
+        "risk": risk,
+        "exit_time": exit_time,
+        "bars_held": int(z.get("bars_held", 0) or 0),
+        "exit_reason": z.get("exit_reason", ""),
+        "pnl_r": float(pnl_r) if pnl_r is not None else float("nan"),
+        "timeout_pnl_r": (
+            float(timeout_pnl_r) if timeout_pnl_r is not None else float("nan")
+        ),
     }
 
 
@@ -217,9 +261,12 @@ FEATURE_COLS: list[str] = [
     "htf_trend_code",
     # zone type
     "is_demand",
-    # recomputed-safe freshness
-    "touches_before_entry",
-    "freshness_score_at_entry",
+    # cost-awareness (knowable at entry; label stays GROSS — see note above)
+    "expected_cost_r",
+    "asset_class_code",
+    "timeframe_code",
+    # market regime (lookahead-safe GMM on daily frame)
+    "regime_code",
     # relative timing / risk
     "bars_to_entry",
     "risk_atr",
@@ -229,29 +276,61 @@ FEATURE_COLS: list[str] = [
 META_COLS: list[str] = ["formation_time", "entry_time", "zone_type", "direction"]
 TARGET_COL: str = "label"
 
-# EXPLICITLY EXCLUDED — these are either lookahead or non-features.
+# Audit columns: post-entry observations carried in the dataset for the
+# backtester and trade-level analysis. NOT model inputs — kept out of
+# FEATURE_COLS on purpose. Training code that does df[FEATURE_COLS] is
+# unaffected. Order matters only for the on-disk column layout.
+AUDIT_COLS: list[str] = [
+    "entry",
+    "stop",
+    "tp",
+    "risk",
+    "exit_time",
+    "bars_held",
+    "exit_reason",
+    "pnl_r",
+    "timeout_pnl_r",
+]
+
+# EXPLICITLY EXCLUDED from FEATURE_COLS — either lookahead, zero-variance, or non-features.
 # Listed here so the exclusion is grep-able and reviewable:
-#   touches, freshness_score        — scan to death (post-entry) → lookahead
+#   touches_before_entry,            — zero variance: always == 1 by construction
+#   freshness_score_at_entry           (entry bar IS the first proximal touch;
+#                                       see the NOTE block above for full explanation)
+#   touches, freshness_score         — scan to death (post-entry) → lookahead
 #   sets_total, sets_rating          — combine the post-entry freshness above
 #   death_bar, is_alive, death_time  — outcome state (post-entry)
-#   exit_bar, exit_reason, bars_held — trade OUTCOMES, not features
-#   pnl_r, timeout_pnl_r             — outcome PnL
-#   entry, stop, tp,                 — raw price levels; not generalisable
-#   proximal, distal                   across symbols/regimes — use *_atr versions
+#   exit_bar, exit_reason, bars_held — trade OUTCOMES, not features (now in AUDIT_COLS)
+#   pnl_r, timeout_pnl_r             — outcome PnL (now in AUDIT_COLS)
+#   entry, stop, tp, risk            — raw price levels; not generalisable
+#   proximal, distal                   across symbols/regimes (now in AUDIT_COLS)
 
 
-def build_features(zones: list[dict], ltf_df: pd.DataFrame) -> pd.DataFrame:
+def build_features(
+    zones: list[dict],
+    ltf_df: pd.DataFrame,
+    symbol: str = "",
+    asset_class: str = "unknown",
+    timeframe: str = "",
+    regime_series: pd.Series | None = None,
+) -> pd.DataFrame:
     """Build the ML feature DataFrame for all labelled zones.
 
     Parameters
     ----------
-    zones  : list of zone dicts post-``labeler.label_zones``.
-    ltf_df : the SAME enriched LTF DataFrame used to label those zones
-             (timestamps + low/high are read from it).
+    zones       : list of zone dicts post-``labeler.label_zones``.
+    ltf_df      : the SAME enriched LTF DataFrame used to label those zones
+                  (timestamps + low/high are read from it).
+    symbol      : ticker string (e.g. "EURUSD=X"). Used to compute
+                  expected_cost_r (JPY-pip rescaling) and asset_class_code.
+    asset_class : asset class string from config.WATCHLIST (e.g. "fx").
+                  Used to compute expected_cost_r and asset_class_code.
+    timeframe   : timeframe string ("1h", "4h", "1d"). Used for
+                  timeframe_code. Defaults to empty string → code = -1.
 
     Returns
     -------
-    DataFrame with columns: FEATURE_COLS + [TARGET_COL] + META_COLS.
+    DataFrame with columns: FEATURE_COLS + [TARGET_COL] + META_COLS + AUDIT_COLS.
     Only rows whose label is not None are included (zones that actually
     entered a trade — no_trade entries are dropped because they have no
     target).
@@ -261,11 +340,17 @@ def build_features(zones: list[dict], ltf_df: pd.DataFrame) -> pd.DataFrame:
     data only (otherwise scaling on the full dataset would leak the test
     distribution into training).
     """
-    rows = [_build_row(z, ltf_df) for z in zones if z.get("label") is not None]
+    rows = [
+        _build_row(z, ltf_df, symbol, asset_class, timeframe, regime_series)
+        for z in zones
+        if z.get("label") is not None
+    ]
     if not rows:
-        return pd.DataFrame(columns=FEATURE_COLS + [TARGET_COL] + META_COLS)
+        return pd.DataFrame(
+            columns=FEATURE_COLS + [TARGET_COL] + META_COLS + AUDIT_COLS
+        )
 
     df = pd.DataFrame(rows)
     # Ensure deterministic column order — feature engineering downstream
     # asserts on this ordering.
-    return df[FEATURE_COLS + [TARGET_COL] + META_COLS]
+    return df[FEATURE_COLS + [TARGET_COL] + META_COLS + AUDIT_COLS]
