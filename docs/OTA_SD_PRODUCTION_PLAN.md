@@ -208,3 +208,40 @@
 1. المرحلة 0: الفهم (مراجعة الكود ملف ملف). ← استخدم OTA_SD_LEARNING_GUIDE.md
 2. المرحلة 0.5: الـ 6 features الجديدة + قياس. ← دورة ML أخيرة
 3. المرحلة 1-6: الإنتاج (refactor → DuckDB → Dagster → dashboard → forward test → live).
+
+---
+
+## 8) تحديث: معمارية المرحلة 6 (LangGraph multi-agent + ML risk) — للتنفيذ بعد نجاح الـ forward test
+
+المستخدم عايز يبني (في المرحلة المتقدمة، مش الآن):
+1. LangGraph multi-agent يشيل العنصر البشري بالكامل من التنفيذ.
+2. ML models للـ risk & portfolio management + integration مع الـ agent.
+
+### مبدأ حاكم (لا يتغيّر):
+الـ agent والـ ML risk = طبقة تنفيذ وإدارة، مش مصدر edge. الـ agent بيكبّر نتيجة الـ edge (موجب أو سالب) باتساق — مش بيحوّل السالب لموجب. عشان كده ينفّذوا بعد ما الـ forward test يثبت إن الـ edge موجب حيّ.
+
+### تصميم مبدئي لمعمارية الـ LangGraph multi-agent (للمرحلة 6):
+- agent المراقبة (Market Watcher): يراقب الأصول النظيفة، يكشف المناطق على آخر شمعة مقفولة.
+- agent الإشارة (Signal Agent): يطبّق الموديل المجمّد (xgb_model.json)، يفلتر threshold 0.52، يطلّع إشارة.
+- agent المخاطرة (Risk Agent): يحدّد حجم الصفقة (هنا تدخل ML risk models: HRP/regime-sizing)، يتأكد من concurrency cap والارتباطات.
+- agent التنفيذ (Execution Agent): ينفّذ على المنصّة (paper أو live)، يتابع SL/TP/timeout.
+- agent المحاسبة (Ledger Agent): يسجّل، يحدّث الإحصائيات، يقارن بالمتوقّع.
+- الـ shared state: المحفظة، الصفقات المفتوحة، الإكويتي، الـ regime الحالي.
+
+### ML risk/portfolio models (للمرحلة 6، بحذر):
+- HRP: توزيع مخاطرة عبر صفقات متزامنة مترابطة (يلمع مع محفظة كبيرة، هامشي على ~7 صفقات/أسبوع).
+- Hierarchical/Spectral clustering: بلوكات مخاطرة حسب الارتباط الفعلي.
+- GMM/HMM regime sizing: تصغير/تكبير الحجم حسب الـ regime.
+- تحذير: كل ML model جديد = سطح overfit جديد. متضيفهمش قبل ما الـ edge الأساسي يثبت حيّ، وضيفهم واحد واحد مع قياس.
+
+### الترتيب الصارم:
+1. forward test بأبسط أتمتة (سكريبت signal generator + تسجيل) — يثبت الـ edge حيّ.
+2. لو نجح (net >= +0.20R) → ابنِ LangGraph multi-agent للتنفيذ.
+3. لو الصفقات المتزامنة كترت → ضيف ML risk/portfolio.
+لا تبني الطبقات المعقّدة قبل إثبات الـ edge حيّ.
+
+---
+
+## 9) ملاحظة على المرحلة 0 (الفهم) — استعداد المستخدم
+
+المستخدم ذاكر أساسيات ML (regression + classification من Microsoft ML for Beginners) — كفاية تماماً لفهم الكود. النظام classification مش deep learning. الفجوة الوحيدة (XGBoost internals) تتشرح وقت المراجعة. المستخدم يبدأ المرحلة 0 فوراً من غير ما يخلّص الكورس. خطة المراجعة المخصّصة في OTA_SD_LEARNING_GUIDE.md الجزء 12: نمشي ملف ملف، نربط كل مفهوم باللي ذاكره، نشرح الجديد في سياق المشروع.
