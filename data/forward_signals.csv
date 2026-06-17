@@ -1,2 +1,2 @@
 timestamp_detected,symbol,timeframe,zone_type,direction,formation,formation_time,base_start_time,entry,stop,tp,risk,distal,model_prob,status,entry_time,exit_time,exit_reason,pnl_r,timeout_pnl_r,bars_held,last_checked
-2026-06-17T08:14:34+00:00,BZ=F,1h,supply,short,RBD,2026-06-16T00:00:00+00:00,2026-06-15T23:00:00+00:00,83.52,83.86077,82.49769,0.34077,83.80000305175781,0.5202,pending,,,,,,,2026-06-17T11:53:38+00:00
+2026-06-17T08:14:34+00:00,BZ=F,1h,supply,short,RBD,2026-06-16T00:00:00+00:00,2026-06-15T23:00:00+00:00,83.52,83.86077,82.49769,0.34077,83.80000305175781,0.5202,pending,,,,,,,2026-06-17T12:35:50+00:00
