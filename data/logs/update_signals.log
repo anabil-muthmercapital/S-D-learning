@@ -1,0 +1,158 @@
+
+========================================================================
+[2026-06-17T08:48:27Z] starting update_signals.py
+========================================================================
+[info] 1 active signal(s) across 1 (symbol, tf) pair(s)
+
+========================================================================
+UPDATE SUMMARY  (2026-06-17T08:48:28+00:00)
+========================================================================
+  pending→closed       : 1
+
+LIVE PERFORMANCE (closed trades only)
+------------------------------------------------------------------------
+  closed trades   : 1
+  win rate        : 100.0%   (1 W / 0 L)
+  total pnl       : +3.00 R
+  avg expectancy  : +3.000 R / trade  (vs +0.42 R backtest baseline)
+  by exit reason  : tp=1
+
+PIPELINE STATE
+------------------------------------------------------------------------
+  pending          : 0
+  open             : 0
+  closed           : 1
+  expired_no_entry : 0
+  total            : 1
+========================================================================
+[2026-06-17T08:48:31Z] update_signals.py finished (exit=0)
+
+========================================================================
+[2026-06-17T09:00:57Z] starting update_signals.py
+========================================================================
+[info] all signals are in a terminal state — nothing to update.
+LIVE PERFORMANCE (closed trades only)
+------------------------------------------------------------------------
+  closed trades   : 1
+  win rate        : 100.0%   (1 W / 0 L)
+  total pnl       : +3.00 R
+  avg expectancy  : +3.000 R / trade  (vs +0.42 R backtest baseline)
+  by exit reason  : tp=1
+
+PIPELINE STATE
+------------------------------------------------------------------------
+  pending          : 0
+  open             : 0
+  closed           : 1
+  expired_no_entry : 0
+  total            : 1
+[2026-06-17T09:00:57Z] update_signals.py finished (exit=0)
+
+========================================================================
+[2026-06-17T09:19:57Z] starting update_signals.py
+========================================================================
+[info] all signals are in a terminal state — nothing to update.
+LIVE PERFORMANCE (closed trades only)
+------------------------------------------------------------------------
+  closed trades   : 1
+  win rate        : 100.0%   (1 W / 0 L)
+  total pnl       : +3.00 R
+  avg expectancy  : +3.000 R / trade  (vs +0.42 R backtest baseline)
+  by exit reason  : tp=1
+
+PIPELINE STATE
+------------------------------------------------------------------------
+  pending          : 0
+  open             : 0
+  closed           : 1
+  expired_no_entry : 0
+  total            : 1
+[2026-06-17T09:19:57Z] update_signals.py finished (exit=0)
+
+========================================================================
+[2026-06-17T09:31:35Z] starting update_signals.py
+========================================================================
+[info] all signals are in a terminal state — nothing to update.
+LIVE PERFORMANCE (closed trades only)
+------------------------------------------------------------------------
+  closed trades   : 1
+  win rate        : 100.0%   (1 W / 0 L)
+  total pnl       : +3.00 R
+  avg expectancy  : +3.000 R / trade  (vs +0.42 R backtest baseline)
+  by exit reason  : tp=1
+
+PIPELINE STATE
+------------------------------------------------------------------------
+  pending          : 0
+  open             : 0
+  closed           : 1
+  expired_no_entry : 0
+  total            : 1
+[2026-06-17T09:31:35Z] update_signals.py finished (exit=0)
+
+========================================================================
+[2026-06-17T09:44:07Z] starting update_signals.py
+========================================================================
+[info] all signals are in a terminal state — nothing to update.
+LIVE PERFORMANCE (closed trades only)
+------------------------------------------------------------------------
+  closed trades   : 1
+  win rate        : 100.0%   (1 W / 0 L)
+  total pnl       : +3.00 R
+  avg expectancy  : +3.000 R / trade  (vs +0.42 R backtest baseline)
+  by exit reason  : tp=1
+
+PIPELINE STATE
+------------------------------------------------------------------------
+  pending          : 0
+  open             : 0
+  closed           : 1
+  expired_no_entry : 0
+  total            : 1
+[2026-06-17T09:44:07Z] update_signals.py finished (exit=0)
+
+========================================================================
+[2026-06-17T09:58:19Z] starting update_signals.py
+========================================================================
+[info] 1 active signal(s) across 1 (symbol, tf) pair(s)
+
+========================================================================
+UPDATE SUMMARY  (2026-06-17T09:58:20+00:00)
+========================================================================
+
+LIVE PERFORMANCE (closed trades only)
+------------------------------------------------------------------------
+  no closed trades yet
+
+PIPELINE STATE
+------------------------------------------------------------------------
+  pending          : 1
+  open             : 0
+  closed           : 0
+  expired_no_entry : 0
+  total            : 1
+========================================================================
+[2026-06-17T09:58:23Z] update_signals.py finished (exit=0)
+
+========================================================================
+[2026-06-17T10:44:21Z] starting update_signals.py
+========================================================================
+[info] 1 active signal(s) across 1 (symbol, tf) pair(s)
+
+========================================================================
+UPDATE SUMMARY  (2026-06-17T10:44:22+00:00)
+========================================================================
+
+LIVE PERFORMANCE (closed trades only)
+------------------------------------------------------------------------
+  no closed trades yet
+
+PIPELINE STATE
+------------------------------------------------------------------------
+  pending          : 1
+  open             : 0
+  closed           : 0
+  expired_no_entry : 0
+  total            : 1
+========================================================================
+[2026-06-17T10:44:25Z] update_signals.py finished (exit=0)

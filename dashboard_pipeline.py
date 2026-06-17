@@ -551,9 +551,7 @@ def render_forward_live() -> None:
             )
             target_closed = 30  # heuristic sample-size threshold
             if closed_per_day > 0:
-                days_to_target = max(
-                    0.0, (target_closed - n_closed) / closed_per_day
-                )
+                days_to_target = max(0.0, (target_closed - n_closed) / closed_per_day)
             else:
                 days_to_target = float("inf")
 

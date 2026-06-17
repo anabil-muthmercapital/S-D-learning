@@ -1,0 +1,208 @@
+
+========================================================================
+[2026-06-17T08:16:18Z] starting forward_test.py
+========================================================================
+[info] loading frozen model: /Users/an/Desktop/S-D-learning/data/xgb_model.json
+========================================================================
+  forward-test start (pinned) : 2026-06-16  --  IMMUTABLE
+  pin file                    : /Users/an/Desktop/S-D-learning/data/forward_test_start.json
+========================================================================
+[info] scanning 50 symbol(s) × 3 TF(s) — threshold = 0.52
+
+========================================================================
+FORWARD-TEST SUMMARY  (2026-06-17T08:16:20+00:00)
+========================================================================
+  forward-test start : 2026-06-16
+  symbols scanned    : 50
+  NEW forward signals (formed since 2026-06-16, prob ≥ 0.52) : 1
+  historical zones skipped (formed before start) : 437
+  NEW signals written to log                     : 0
+  duplicates skipped (already logged)            : 1
+  log file           : /Users/an/Desktop/S-D-learning/data/forward_signals.csv
+
+  candidates by symbol:
+    BZ=F          1
+========================================================================
+[2026-06-17T08:22:48Z] forward_test.py finished (exit=0)
+
+========================================================================
+[2026-06-17T08:41:57Z] starting forward_test.py
+========================================================================
+[info] loading frozen model: /Users/an/Desktop/S-D-learning/data/xgb_model.json
+========================================================================
+  forward-test start (pinned) : 2026-06-16  --  IMMUTABLE
+  pin file                    : /Users/an/Desktop/S-D-learning/data/forward_test_start.json
+========================================================================
+[info] scanning 50 symbol(s) × 3 TF(s) — threshold = 0.52
+
+========================================================================
+FORWARD-TEST SUMMARY  (2026-06-17T08:41:59+00:00)
+========================================================================
+  forward-test start : 2026-06-16
+  symbols scanned    : 50
+  NEW forward signals (formed since 2026-06-16, prob ≥ 0.52) : 1
+  historical zones skipped (formed before start) : 437
+  NEW signals written to log                     : 0
+  duplicates skipped (already logged)            : 1
+  log file           : /Users/an/Desktop/S-D-learning/data/forward_signals.csv
+
+  candidates by symbol:
+    BZ=F          1
+========================================================================
+[2026-06-17T08:48:27Z] forward_test.py finished (exit=0)
+
+========================================================================
+[2026-06-17T08:54:23Z] starting forward_test.py
+========================================================================
+[info] loading frozen model: /Users/an/Desktop/S-D-learning/data/xgb_model.json
+========================================================================
+  forward-test start (pinned) : 2026-06-16  --  IMMUTABLE
+  pin file                    : /Users/an/Desktop/S-D-learning/data/forward_test_start.json
+========================================================================
+[info] scanning 50 symbol(s) × 3 TF(s) — threshold = 0.52
+
+========================================================================
+FORWARD-TEST SUMMARY  (2026-06-17T08:54:24+00:00)
+========================================================================
+  forward-test start : 2026-06-16
+  symbols scanned    : 50
+  NEW forward signals (formed since 2026-06-16, prob ≥ 0.52) : 1
+  historical zones skipped (formed before start) : 437
+  NEW signals written to log                     : 0
+  duplicates skipped (already logged)            : 1
+  log file           : /Users/an/Desktop/S-D-learning/data/forward_signals.csv
+
+  candidates by symbol:
+    BZ=F          1
+========================================================================
+[2026-06-17T09:00:57Z] forward_test.py finished (exit=0)
+
+========================================================================
+[2026-06-17T09:13:28Z] starting forward_test.py
+========================================================================
+[info] loading frozen model: /Users/an/Desktop/S-D-learning/data/xgb_model.json
+========================================================================
+  forward-test start (pinned) : 2026-06-16  --  IMMUTABLE
+  pin file                    : /Users/an/Desktop/S-D-learning/data/forward_test_start.json
+========================================================================
+[info] scanning 50 symbol(s) × 3 TF(s) — threshold = 0.52
+
+========================================================================
+FORWARD-TEST SUMMARY  (2026-06-17T09:13:29+00:00)
+========================================================================
+  forward-test start : 2026-06-16
+  symbols scanned    : 50
+  NEW forward signals (formed since 2026-06-16, prob ≥ 0.52) : 1
+  historical zones skipped (formed before start) : 437
+  NEW signals written to log                     : 0
+  duplicates skipped (already logged)            : 1
+  log file           : /Users/an/Desktop/S-D-learning/data/forward_signals.csv
+
+  candidates by symbol:
+    BZ=F          1
+========================================================================
+[2026-06-17T09:19:57Z] forward_test.py finished (exit=0)
+
+========================================================================
+[2026-06-17T09:25:07Z] starting forward_test.py
+========================================================================
+[info] loading frozen model: /Users/an/Desktop/S-D-learning/data/xgb_model.json
+========================================================================
+  forward-test start (pinned) : 2026-06-16  --  IMMUTABLE
+  pin file                    : /Users/an/Desktop/S-D-learning/data/forward_test_start.json
+========================================================================
+[info] scanning 50 symbol(s) × 3 TF(s) — threshold = 0.52
+
+========================================================================
+FORWARD-TEST SUMMARY  (2026-06-17T09:25:08+00:00)
+========================================================================
+  forward-test start : 2026-06-16
+  symbols scanned    : 50
+  NEW forward signals (formed since 2026-06-16, prob ≥ 0.52) : 1
+  historical zones skipped (formed before start) : 437
+  NEW signals written to log                     : 0
+  duplicates skipped (already logged)            : 1
+  log file           : /Users/an/Desktop/S-D-learning/data/forward_signals.csv
+
+  candidates by symbol:
+    BZ=F          1
+========================================================================
+[2026-06-17T09:31:35Z] forward_test.py finished (exit=0)
+
+========================================================================
+[2026-06-17T09:37:39Z] starting forward_test.py
+========================================================================
+[info] loading frozen model: /Users/an/Desktop/S-D-learning/data/xgb_model.json
+========================================================================
+  forward-test start (pinned) : 2026-06-16  --  IMMUTABLE
+  pin file                    : /Users/an/Desktop/S-D-learning/data/forward_test_start.json
+========================================================================
+[info] scanning 50 symbol(s) × 3 TF(s) — threshold = 0.52
+
+========================================================================
+FORWARD-TEST SUMMARY  (2026-06-17T09:37:40+00:00)
+========================================================================
+  forward-test start : 2026-06-16
+  symbols scanned    : 50
+  NEW forward signals (formed since 2026-06-16, prob ≥ 0.52) : 1
+  historical zones skipped (formed before start) : 437
+  NEW signals written to log                     : 0
+  duplicates skipped (already logged)            : 1
+  log file           : /Users/an/Desktop/S-D-learning/data/forward_signals.csv
+
+  candidates by symbol:
+    BZ=F          1
+========================================================================
+[2026-06-17T09:44:07Z] forward_test.py finished (exit=0)
+
+========================================================================
+[2026-06-17T09:51:50Z] starting forward_test.py
+========================================================================
+[info] loading frozen model: /Users/an/Desktop/S-D-learning/data/xgb_model.json
+========================================================================
+  forward-test start (pinned) : 2026-06-16  --  IMMUTABLE
+  pin file                    : /Users/an/Desktop/S-D-learning/data/forward_test_start.json
+========================================================================
+[info] scanning 50 symbol(s) × 3 TF(s) — threshold = 0.52
+
+========================================================================
+FORWARD-TEST SUMMARY  (2026-06-17T09:51:52+00:00)
+========================================================================
+  forward-test start : 2026-06-16
+  symbols scanned    : 50
+  NEW forward signals (formed since 2026-06-16, prob ≥ 0.52) : 1
+  historical zones skipped (formed before start) : 437
+  NEW signals written to log                     : 0
+  duplicates skipped (already logged)            : 1
+  log file           : /Users/an/Desktop/S-D-learning/data/forward_signals.csv
+
+  candidates by symbol:
+    BZ=F          1
+========================================================================
+[2026-06-17T09:58:19Z] forward_test.py finished (exit=0)
+
+========================================================================
+[2026-06-17T10:37:54Z] starting forward_test.py
+========================================================================
+[info] loading frozen model: /Users/an/Desktop/S-D-learning/data/xgb_model.json
+========================================================================
+  forward-test start (pinned) : 2026-06-16  --  IMMUTABLE
+  pin file                    : /Users/an/Desktop/S-D-learning/data/forward_test_start.json
+========================================================================
+[info] scanning 50 symbol(s) × 3 TF(s) — threshold = 0.52
+
+========================================================================
+FORWARD-TEST SUMMARY  (2026-06-17T10:37:55+00:00)
+========================================================================
+  forward-test start : 2026-06-16
+  symbols scanned    : 50
+  NEW forward signals (formed since 2026-06-16, prob ≥ 0.52) : 1
+  historical zones skipped (formed before start) : 438
+  NEW signals written to log                     : 0
+  duplicates skipped (already logged)            : 1
+  log file           : /Users/an/Desktop/S-D-learning/data/forward_signals.csv
+
+  candidates by symbol:
+    BZ=F          1
+========================================================================
+[2026-06-17T10:44:21Z] forward_test.py finished (exit=0)
