@@ -71,6 +71,7 @@ import pandas as pd
 PROJECT_ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
+from utils.config import DEPARTURE_CANDLES
 from utils.data_loader import load_enriched_timeframes
 from utils.labeler import DEFAULT_MAX_HOLD_BARS
 
@@ -344,9 +345,15 @@ def _update_row(
 
     # ---------- PENDING → look for entry trigger or death --------------------
     if status == "pending":
-        scan_start = _idx_after(ltf_df, formation_ts)
+        # Skip the departure window (DEPARTURE_CANDLES bars after the base).
+        # Wicks during the leg-out are NOT retests — they are part of the
+        # departure itself. The labeler (utils/labeler.py) and freshness
+        # (utils/freshness.py) both scan from base_end + DEPARTURE_CANDLES + 1;
+        # we must match that contract or we'd open trades on the leg-out bar
+        # and report fictitious entries (see fix to BZ=F 2026-06-16).
+        scan_start = _idx_after(ltf_df, formation_ts) + DEPARTURE_CANDLES
         if scan_start >= len(ltf_df):
-            return updates  # no new closed bars since formation
+            return updates  # no new closed bars past the departure window yet
         result, bar_idx = _find_entry_or_death(
             ltf_df, direction, entry, distal, scan_start
         )
