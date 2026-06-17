@@ -19,3 +19,9 @@ env/
 
 # VS Code
 .vscode/
+
+# Local runtime artefacts — never committed
+# (raw OHLCV is re-fetched by yfinance each run; logs/locks are per-machine)
+data/raw/
+data/logs/
+data/locks/

@@ -1,0 +1,45 @@
+# =============================================================================
+# Crontab entries for the OTA S&D forward test.
+#
+# WHY these schedules:
+#   * forward_test.py runs at minute 6 of every hour. Yahoo 1h bars close on
+#     the hour (xx:00); we wait ~6 minutes for yfinance to have the just-closed
+#     bar available. Earlier than that and the freshest bar is often still missing.
+#   * update_signals.py runs 10 minutes later (at xx:16). This guarantees the
+#     latest forward_test run has emitted any new pending signals before the
+#     outcome tracker walks through them.
+#   * The wrapper script (scripts/cron_forward.sh) handles locking so two runs
+#     never race on data/forward_signals.csv.
+#
+# HOW to install (run once from a terminal):
+#
+#     # 1) Review what is about to be added:
+#     cat /Users/an/Desktop/S-D-learning/scripts/crontab.txt
+#
+#     # 2) Append to your crontab (preserves anything already there):
+#     ( crontab -l 2>/dev/null; cat /Users/an/Desktop/S-D-learning/scripts/crontab.txt ) | crontab -
+#
+#     # 3) Verify:
+#     crontab -l
+#
+# HOW to remove:
+#     crontab -l | grep -v 'S-D-learning/scripts/cron_forward.sh' | crontab -
+#
+# HOW to watch live:
+#     tail -f /Users/an/Desktop/S-D-learning/data/logs/forward_test.log
+#     tail -f /Users/an/Desktop/S-D-learning/data/logs/update_signals.log
+#
+# NOTES:
+#   * macOS requires the Terminal app (or whatever launches cron) to have
+#     Full Disk Access in System Settings → Privacy & Security if the script
+#     ever touches restricted folders. data/ inside the project is fine.
+#   * Times below are in your LOCAL system timezone (macOS cron is local TZ,
+#     not UTC). The pin file and CSV timestamps remain UTC — only the cron
+#     fire times follow local clock.
+# =============================================================================
+
+# Every hour at minute 6 — detect new forward signals
+6 * * * * /Users/an/Desktop/S-D-learning/scripts/cron_forward.sh forward
+
+# Every hour at minute 16 — update outcomes of pending/open signals
+16 * * * * /Users/an/Desktop/S-D-learning/scripts/cron_forward.sh update

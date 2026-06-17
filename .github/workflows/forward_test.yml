@@ -1,0 +1,123 @@
+# =============================================================================
+# Forward Test — Hourly automation on GitHub Actions
+# =============================================================================
+#
+# WHY GitHub Actions:
+#   The local Mac is shut down most of the time, so cron/launchd would miss
+#   most signals. GitHub runs this on its own servers every hour, so the
+#   forward test sees every closed bar without depending on the laptop.
+#
+# WHAT IT DOES (per run):
+#   1. Pulls latest commits (in case a previous run pushed).
+#   2. Installs pinned deps (cached by setup-python, so only first run is slow).
+#   3. Runs forward_test.py  — detects new actionable signals.
+#   4. Runs update_signals.py — walks pending/open signals to outcome.
+#   5. If anything in data/ changed, commits & pushes back to main.
+#
+# SCHEDULE:
+#   :05 every hour (UTC). GitHub cron only fires after the listed minute, and
+#   in practice there's a 5-15 min queue delay during peak hours — that's fine
+#   because we just need to be inside the hour, not at hh:00 sharp.
+#
+# COST: free. ~5 min/run × 24 runs/day × 31 days = ~3700 minutes/month, well
+# under the 2000-minute free tier per private repo (and unlimited for public).
+# If you hit limits, drop to every 2 hours by changing the cron to '5 */2 * * *'.
+#
+# SECURITY:
+#   Uses GITHUB_TOKEN with default repo-scoped write permission. No secrets
+#   are read by the scripts; yfinance has no API key.
+#
+# DEBUG / MANUAL TRIGGER:
+#   Go to Actions tab → "Forward Test (hourly)" → Run workflow.
+# =============================================================================
+
+name: Forward Test (hourly)
+
+on:
+  schedule:
+    # Minute 5 of every hour, UTC. GitHub cron is best-effort — expect drift.
+    - cron: "5 * * * *"
+  workflow_dispatch: {} # also runnable on demand from the Actions tab
+
+# Allow the job to push the updated CSVs back to the repo.
+permissions:
+  contents: write
+
+# Never run two of these in parallel — they'd race on data/forward_signals.csv.
+concurrency:
+  group: forward-test
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25 # full universe scan + yfinance refresh fits in ~10-15
+
+    steps:
+      - name: Checkout repo (need write token, full history for push)
+        uses: actions/checkout@v4
+        with:
+          # Persist the credential so the final `git push` step works.
+          persist-credentials: true
+          fetch-depth: 1
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Install pinned dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Sanity check — model file present
+        run: |
+          test -f data/xgb_model.json || { echo "::error::xgb_model.json missing — commit it before running"; exit 1; }
+          test -f data/forward_test_start.json || { echo "::error::forward_test_start.json missing — local first-run must happen before enabling Actions"; exit 1; }
+          echo "pin contents:"
+          cat data/forward_test_start.json
+
+      - name: Bootstrap universe directories from WATCHLIST
+        # forward_test._clean_universe() scans data/raw/ for symbol subdirs.
+        # We don't commit data/raw/ (re-downloaded fresh each run), so we
+        # create empty per-symbol dirs first; data_loader auto-fetches what
+        # is missing.
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          from utils.config import WATCHLIST
+          raw = Path("data/raw")
+          raw.mkdir(parents=True, exist_ok=True)
+          for syms in WATCHLIST.values():
+              for s in syms:
+                  (raw / s).mkdir(parents=True, exist_ok=True)
+          print(f"prepared {sum(len(s) for s in WATCHLIST.values())} symbol dirs")
+          PY
+
+      - name: Run forward_test.py (emit new signals)
+        run: python forward_test.py
+
+      - name: Run update_signals.py (resolve pending/open outcomes)
+        run: python update_signals.py
+
+      - name: Commit & push the updated signals log
+        # We only push data/forward_signals.csv (kilobytes). The raw OHLCV
+        # under data/raw/ is regenerated fresh by yfinance every run, so
+        # committing it would balloon the repo by ~68MB / hour for no benefit.
+        # If nothing changed (no new signals, no resolved outcomes) the
+        # commit step short-circuits with exit 0.
+        run: |
+          git config user.name  "forward-test-bot"
+          git config user.email "forward-test-bot@users.noreply.github.com"
+          git add data/forward_signals.csv
+          if git diff --cached --quiet; then
+            echo "no signal changes this run"
+            exit 0
+          fi
+          ROWS=$(($(wc -l < data/forward_signals.csv) - 1))
+          git commit -m "forward-test: $(date -u +'%Y-%m-%dT%H:%MZ') (${ROWS} signals)"
+          # Retry once if push races with another branch update.
+          git push || (git pull --rebase && git push)
