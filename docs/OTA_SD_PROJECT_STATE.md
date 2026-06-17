@@ -344,3 +344,60 @@ ingest_market_data → detect_zones → generate_signals → paper_execute → u
 التقييم: الأساس ده كفاية تماماً لفهم كل الكود. النظام classification (XGBoost) = نفس مفهوم logistic اللي ذاكره. الفجوة الوحيدة الصغيرة = آلية XGBoost الداخلية (decision trees / gradient boosting)، تتشرح في ~10 دقائق وقت المراجعة. معظم الكود منطق برمجي بسيط مش ML.
 
 القرار: المستخدم مايستنّاش يخلّص الكورس — يبدأ المرحلة 0 (فهم الكود) فوراً. المنهج: نمشي على دليل الفهم ملف ملف، نربط كل مفهوم ML باللي ذاكره، ونشرح الجديد (XGBoost internals) وقته. تفاصيل خطة المراجعة المخصّصة في OTA_SD_LEARNING_GUIDE.md الجزء 12.
+
+---
+
+## 20) سيشن الـ forward test — اكتشاف opposing zones، البناء، ودرس أكبر مكسب
+
+### اكتشاف الـ opposing zones (فكرة صاحب المستخدم):
+القاعدة: كل منطقة لازم يكون قدامها "opposing zone" (معاكسة) على **نفس الفريم** على مسافة ≥ 2R قبل الهدف، وإلا السعر يرتد من الحاجز قبل ما يوصل TP (3R).
+- **القياس التحليلي** (analyze_opposing_zones.py — سكريبت مستقل، مش بيعدّل pipeline): على 12,791 صفقة نظيفة:
+  - BLOCKED (<2R): n=8111، win 30.3%، gross +0.2242R.
+  - CLEAR (≥2R): n=3602، win 36.0%، gross +0.4489R.
+  - OPEN SPACE: n=1078، win 33.7%، gross +0.3543R.
+  - الفرق blocked مقابل الباقي = +0.2029R. **التأثير monotonic** (تدريجي نظيف عبر buckets المسافة) وعام عبر كل الأصول النظيفة + له تفسير ميكانيكي (حاجز <3R يمنع الـ TP فيزيائياً). **صاحب المستخدم مصيب في الملاحظة.**
+- **بس كـ feature: اترفض.** ضفنا opp_dist_r (المسافة بالـ R، sentinel 99 للمساحة المفتوحة، point-in-time lookahead-safe). النتيجة: test AUC نزل 0.5578→0.5468، coverage طاح 7.7% (148 صفقة، cherry-picking)، و**opp_dist_r مش في SHAP top 10**. السبب: المعلومة **مُلتقطة ضمنياً** في tp_distance_atr / risk_atr / zone_width. **اترجع بالكامل** (شيلنا من FEATURE_COLS + الكود + build_dataset). رجع 25 feature، AUC 0.5578، +0.42R.
+- **الدرس:** فكرة منطقية وحقيقية في الداتا ≠ feature مفيد. الموديل ممكن يكون شايف المعلومة أصلاً. (نفس درس advanced features).
+
+### عدّاد التجارب المرفوضة (كلها بالأرقام، النظام signal-limited):
+1. advanced features (nesting/FVG/sweep) → AUC نزل (overfit).
+2. close departure → AUC نزل (فقد 30% داتا).
+3. opposing zones → مُلتقط ضمنياً، AUC نزل.
+4. (regime = الوحيد اللي نفع: 0.5442→0.5578).
+السقف ~0.5578 AUC و +0.42R مؤكّد بنيوياً. **باب تحسين الموديل اتقفل عملياً.**
+
+### الـ forward test engine (اتبنى، نظيف، lookahead-safe):
+- **forward_test.py** (المحرّك): يشغّل نفس pipeline على آخر شمعة **مقفولة** (يرمي الشمعة المفتوحة)، ينتظر اكتمال الـ leg-out (departure window) قبل الإشارة (lookahead الحي الحرج)، يطبّق الموديل + threshold 0.52، يسجّل إشارات pending في data/forward_signals.csv (deduped).
+- **نقطة بداية محميّة (forward_test_start.json):** write-once، immutable. بدأت 2026-06-16. حصل bug إن --since كان بيدوس عليها (رجّعها 2025) — **اتصلح**: --since بقى فلتر عرض بس، والـ reset محتاج --reset-forward-test --yes-i-really-want-to-reset مع تحذير صاخب. **درس:** الـ forward test الصادق محتاج حماية ضد التلوّث العرضي مش بس كود صح.
+- **update_signals.py** (المتابع): يتابع الإشارات pending→open→closed/expired. منطق مطابق لـ labeler.simulate_triple_barrier (دخول عند proximal، موت عند كسر distal، triple barrier، same-bar SL+TP→SL يكسب). يطبع live expectancy مقابل +0.42R.
+- ملاحظة دقيقة: same-bar في _find_entry_or_death متفائل (دخول)، في barrier walk متشائم (SL). نادر الحدوث، بس انتبه لو فرق غير مفسّر بين الحي والباك تيست.
+- **التشغيل:** forward_test.py ثم update_signals.py، **مرة يومياً كفاية** (مش كل ساعة — الشموع مابتقفلش أسرع). 0 إشارات في البداية **طبيعي** (الـ forward test بطيء بطبيعته، مقصود).
+
+### الجدول الزمني المتوقّع للنتايج:
+- أسبوع-اتنين: إشارات pending قليلة.
+- 3-4 أسابيع: أول صفقات تقفل (أرقام أولية غير موثوقة).
+- 2-3 شهور: عيّنة معقولة (30-50 صفقة).
+- 3-6 شهور: حكم نهائي (50-100 صفقة للدلالة الإحصائية). **معيار النجاح: net ≥ +0.20R حيّ.**
+
+### درس البحث — أكبر مكسب فعلي (web search، يونيو 2026):
+بترتيب الأولوية الحقيقية:
+1. **التكاليف/التنفيذ** (الأكبر، لحد +30% ربحية): منصّة أرخص + تنفيذ أدق. مستقل عن الموديل.
+2. **إثبات الـ edge حيّ** (forward test): الفيصل، مش الباك تيست.
+3. **position sizing:** الـ 1% الحالي **بالفعل قريب من الأمثل** للـ edge الرفيع (quarter-Kelly ≈ 0.9% لـ 45% win/1.33R). Kelly كامل خطر (drawdown مدمّر). متزوّدش.
+4. **الفلاتر (BOS, volume):** آخر القائمة، بتضحّي بصفقات، خطر overfit.
+- **الخلاصة:** أكبر مكسب = التكاليف + إثبات الـ edge حيّ، **مش** features جديدة.
+
+### أفكار مؤجّلة (سُجّلت، مش الأولوية):
+- BOS (break of structure) + volume (للأسهم) + session/timing: ممكن تتقاس **تحليلياً** (سكريبت منفصل) لو حابب، بس متوقّع متواضع (signal-limited). volume = أعلى احتمال (بُعد جديد مش geometry) بس yfinance volume غير موثوق للفوركس.
+- Optuna على hyperparameters: model params → تحسين هامشي + خطر overfit على val. **methodology params (config) → curve-fitting، خط أحمر متلمسش.**
+- crypto في الـ forward test: **مرفوض** — edge سالب مؤكّد (break-even 0.40×)، الموديل ماشافهوش (off-distribution)، الـ gross موجب مضلّل (net سالب). لو منصّة جديدة تشيل العمولة → نعيد حساب costs.py الأول، ولو بقى net موجب نعيد تدريب موديل يشمله (مش نشغّل الحالي عليه).
+
+### القرار الاستراتيجي: باب التحسين اتقفل
+بعد regime (نفع) + 4 تجارب فشلت، النظام مثبت signal-limited. **كفاية تحسين.** كل الطاقة دلوقتي على: (أ) الـ forward test يمشي نظيف، (ب) نموذج التكاليف للمنصّة الحقيقية (أكبر مكسب). أي تحسين موديل جديد = نعيد الـ forward test من الصفر = تأخير الفيصل.
+
+### TODO عند بداية السيشن الجديدة:
+1. commit في Git (forward test engine + الموديل المجمّد + رفض opposing zones).
+2. تشغيل forward_test + update_signals يومياً (أو cron). صبر.
+3. لو المستخدم حدّد المنصّة + تسعيرها → تعديل costs.py + إعادة حساب break-even.
+4. (اختياري) قياس تحليلي لـ BOS/volume — بدون لمس الموديل أو الـ forward test.
+5. امسح _patch_tmp.txt (اتعمل بالغلط).

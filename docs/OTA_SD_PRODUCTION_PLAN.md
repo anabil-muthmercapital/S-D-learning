@@ -245,3 +245,33 @@
 ## 9) ملاحظة على المرحلة 0 (الفهم) — استعداد المستخدم
 
 المستخدم ذاكر أساسيات ML (regression + classification من Microsoft ML for Beginners) — كفاية تماماً لفهم الكود. النظام classification مش deep learning. الفجوة الوحيدة (XGBoost internals) تتشرح وقت المراجعة. المستخدم يبدأ المرحلة 0 فوراً من غير ما يخلّص الكورس. خطة المراجعة المخصّصة في OTA_SD_LEARNING_GUIDE.md الجزء 12: نمشي ملف ملف، نربط كل مفهوم باللي ذاكره، نشرح الجديد في سياق المشروع.
+
+---
+
+## 10) الـ forward test engine — اتبنى وشغّال (المرحلة 5 بدأت)
+
+### الملفات (في جذر المشروع):
+- **forward_test.py** — محرّك الإشارات. يشغّل نفس pipeline على آخر شمعة مقفولة، ينتظر اكتمال leg-out، يطبّق الموديل المجمّد + threshold 0.52، يسجّل pending signals في data/forward_signals.csv.
+- **update_signals.py** — متابع النتايج. pending→open→closed/expired، منطق مطابق للـ labeler. يطبع live expectancy مقابل +0.42R.
+- **forward_test_start.json** — نقطة بداية immutable (2026-06-16). محميّة write-once.
+- **analyze_opposing_zones.py** — سكريبت قياس مستقل (توثيق تجربة opposing zones).
+- **dashboard_pipeline.py** — Scenario Player تفاعلي (7 steps: candles → ... → labeling → ML decision). للفهم البصري.
+
+### التشغيل اليومي:
+```
+python forward_test.py       # يكتشف إشارات جديدة (من 2026-06-16)
+python update_signals.py     # يتابع الـ pending
+```
+مرة يومياً كفاية (الشموع مابتقفلش أسرع). 0 إشارات في البداية طبيعي. (اختياري: cron job + run_forward.sh للأتمتة).
+
+### معيار النجاح (المرحلة 5):
+net ≥ +0.20R حيّ بعد 50-100 صفقة مقفولة (3-6 شهور). ده الفيصل الوحيد المتبقّي. لو نجح → المرحلة 6 (Alpaca/broker، LangGraph، scale). لو فشل → الـ edge مابيتنقلش حيّ.
+
+### أولوية أكبر مكسب (من web search يونيو 2026):
+1. التكاليف/التنفيذ (الأكبر، +30% محتمل) — منصّة أرخص. **اشتغل على costs.py لو المنصّة اتحدّدت.**
+2. إثبات الـ edge حيّ (forward test) — الفيصل.
+3. position sizing — الـ 1% الحالي قريب من الأمثل، متزوّدش (Kelly خطر).
+4. الفلاتر/features — آخر القائمة، باب التحسين اتقفل عملياً.
+
+### قرار: باب تحسين الموديل اتقفل
+regime نفع، 4 تجارب فشلت (advanced features, close departure, opposing zones, + داتا). signal-limited مؤكّد. الموديل مجمّد نهائياً. كل التحسينات الجاية (BOS, volume, Optuna, crypto) مؤجّلة/مرفوضة — أي تعديل موديل = إعادة الـ forward test من الصفر.
