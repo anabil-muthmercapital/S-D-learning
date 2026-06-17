@@ -329,7 +329,10 @@ def _render_signal_chart(row: pd.Series) -> None:
     if pd.notna(base_start_ts_raw) and str(base_start_ts_raw):
         base_start_ts = pd.to_datetime(base_start_ts_raw, utc=True, errors="coerce")
         start_pos_base = int(ltf_df.index.searchsorted(base_start_ts, side="left"))
-        if start_pos_base >= len(ltf_df) or ltf_df.index[start_pos_base] != base_start_ts:
+        if (
+            start_pos_base >= len(ltf_df)
+            or ltf_df.index[start_pos_base] != base_start_ts
+        ):
             start_pos_base = end_pos_base  # safety fallback
     else:
         start_pos_base = end_pos_base
@@ -521,6 +524,72 @@ def render_forward_live() -> None:
                 f"⏱ forward-test start: **{start_date}** "
                 f"(محفوظة في {FORWARD_START_FILE.name})"
             )
+        except Exception:  # noqa: BLE001
+            pass
+
+    # ---- Throughput pacing --------------------------------------------------
+    # The user looks at "1 signal in 24h" and worries the system is broken.
+    # It usually isn't — it's just early. This widget projects the current
+    # rate forward so they can see how long it takes to gather a meaningful
+    # sample (rule of thumb: ~30 closed trades for the avg-R metric to
+    # stabilise, ~100 for confidence the live edge matches +0.42R baseline).
+    if FORWARD_START_FILE.exists():
+        try:
+            import json
+
+            payload = json.loads(FORWARD_START_FILE.read_text())
+            start_ts = pd.to_datetime(payload["forward_test_start"], utc=True)
+            elapsed_h = max(
+                1.0,
+                (pd.Timestamp.now(tz="UTC") - start_ts).total_seconds() / 3600.0,
+            )
+            elapsed_days = elapsed_h / 24.0
+            n_total = len(df)
+            signals_per_day = n_total / elapsed_days if elapsed_days > 0 else 0.0
+            closed_per_day = (
+                n_closed / elapsed_days if (elapsed_days > 0 and n_closed > 0) else 0.0
+            )
+            target_closed = 30  # heuristic sample-size threshold
+            if closed_per_day > 0:
+                days_to_target = max(
+                    0.0, (target_closed - n_closed) / closed_per_day
+                )
+            else:
+                days_to_target = float("inf")
+
+            with st.expander("📐 Throughput pacing — هل المعدل طبيعي؟", expanded=True):
+                p1, p2, p3, p4 = st.columns(4)
+                p1.metric(
+                    "Elapsed",
+                    f"{elapsed_h:.0f}h",
+                    delta=f"~{elapsed_days:.1f} يوم",
+                    delta_color="off",
+                )
+                p2.metric(
+                    "Signals/day",
+                    f"{signals_per_day:.2f}",
+                    delta=f"{n_total} إجمالي",
+                    delta_color="off",
+                )
+                p3.metric(
+                    "Closed/day",
+                    f"{closed_per_day:.2f}",
+                    delta=f"{n_closed} closed",
+                    delta_color="off",
+                )
+                if days_to_target == float("inf"):
+                    p4.metric("⏳ to 30 closed", "—", delta="استنى أول صفقة")
+                else:
+                    p4.metric(
+                        f"⏳ to {target_closed} closed",
+                        f"~{days_to_target:.0f} يوم",
+                    )
+                st.caption(
+                    "💡 الـ pipeline بيـ scan 50 رمز × 3 timeframes كل ساعة. "
+                    "الـ ML threshold = 0.52 بيرفض 70-85% من الـ candidates "
+                    "(ده الـ feature، مش bug). صبر أسبوع للوصول لـ ~15-30 signal "
+                    "وشهر للوصول لـ sample إحصائي يقاس بـ +0.42R baseline."
+                )
         except Exception:  # noqa: BLE001
             pass
 
