@@ -292,7 +292,20 @@ def _load_forward_signals() -> pd.DataFrame:
 
 
 def _render_signal_chart(row: pd.Series) -> None:
-    """Plot the signal's zone, entry/stop/tp lines, and entry/exit markers."""
+    """Plot the signal with the SAME visual contract as Step 6 (Labeling).
+
+    Visual elements (in order):
+      * candlesticks around the base
+      * base candles flagged (down-triangle markers) so the user sees
+        exactly which bars formed the zone
+      * coloured rectangle from base_start → end_of_view, between
+        proximal (entry) and distal — proximal is the SOLID line,
+        distal is the DASHED line, matching _add_zone_box used by
+        the Labeling chart
+      * formation label (RBD / DBR / RBR / DBD) anchored on the box
+      * Entry / Stop / TP horizontal lines across the full view
+      * Entry / Exit markers if the trade has progressed
+    """
     try:
         data = load_enriched_timeframes(row["symbol"], timeframes=[row["timeframe"]])
         ltf_df = data[row["timeframe"]]
@@ -304,56 +317,78 @@ def _render_signal_chart(row: pd.Series) -> None:
     if pd.isna(formation_ts):
         st.warning("formation_time غير صالح.")
         return
-    pos = int(ltf_df.index.searchsorted(formation_ts, side="left"))
-    if pos >= len(ltf_df):
+    end_pos_base = int(ltf_df.index.searchsorted(formation_ts, side="left"))
+    if end_pos_base >= len(ltf_df) or ltf_df.index[end_pos_base] != formation_ts:
         st.warning("الـ formation bar مش موجود في الـ data المحمّلة.")
         return
 
-    # Window: 20 bars before formation, extend to ~10 bars after exit if known.
-    end_pos = pos + 50
+    # ---- locate base START -------------------------------------------------
+    # New schema has base_start_time. Fallback for legacy rows: assume base
+    # was a single candle (start == end). Either way we get a valid iloc.
+    base_start_ts_raw = row.get("base_start_time", "")
+    if pd.notna(base_start_ts_raw) and str(base_start_ts_raw):
+        base_start_ts = pd.to_datetime(base_start_ts_raw, utc=True, errors="coerce")
+        start_pos_base = int(ltf_df.index.searchsorted(base_start_ts, side="left"))
+        if start_pos_base >= len(ltf_df) or ltf_df.index[start_pos_base] != base_start_ts:
+            start_pos_base = end_pos_base  # safety fallback
+    else:
+        start_pos_base = end_pos_base
+
+    # ---- viewport: 10 bars before base, extend past exit (if any) ----------
+    view_end = end_pos_base + 50
     exit_ts_raw = row.get("exit_time", "")
     if pd.notna(exit_ts_raw) and str(exit_ts_raw):
         exit_ts = pd.to_datetime(exit_ts_raw, utc=True, errors="coerce")
         if pd.notna(exit_ts):
             exit_pos = int(ltf_df.index.searchsorted(exit_ts, side="right"))
-            end_pos = max(end_pos, exit_pos + 10)
-    start = max(0, pos - 20)
-    end_pos = min(len(ltf_df) - 1, end_pos)
-    tv = ltf_df.iloc[start : end_pos + 1]
-    fig = _base_candles(tv, highlight_base=False)
+            view_end = max(view_end, exit_pos + 10)
+    view_start = max(0, start_pos_base - 10)
+    view_end = min(len(ltf_df) - 1, view_end)
 
+    # ---- build a small zone dict so we can reuse _add_zone_box -------------
+    # _add_zone_box wants {start, end, proximal, distal} in iloc terms,
+    # which is exactly what the Labeling page passes too.
+    distal_raw = row.get("distal", None)
+    distal_val = (
+        float(distal_raw)
+        if distal_raw not in (None, "") and pd.notna(distal_raw)
+        else float(row["stop"])
+    )
+    zone_for_box = {
+        "start": start_pos_base,
+        "end": end_pos_base,
+        "proximal": float(row["entry"]),  # entry == proximal by construction
+        "distal": distal_val,
+        "zone_type": str(row["zone_type"]),
+    }
+
+    # Slice candles and mark base bars so highlight_base lights them up.
+    tv = ltf_df.iloc[view_start : view_end + 1].copy()
+    tv["is_base"] = False
+    base_mask_global = slice(start_pos_base, end_pos_base + 1)
+    tv.loc[ltf_df.index[base_mask_global], "is_base"] = True
+
+    fig = _base_candles(tv, highlight_base=True)
+    color = COLOR_BULL if zone_for_box["zone_type"] == "demand" else COLOR_BEAR
+    formation_label = str(row.get("formation", "") or zone_for_box["zone_type"])
+    _add_zone_box(
+        fig,
+        ltf_df,
+        zone_for_box,
+        color,
+        formation_label,
+        extend_bars=(view_end - end_pos_base),
+    )
+
+    # ---- Entry / Stop / TP horizontal lines across the full view ----------
     entry = float(row["entry"])
     stop = float(row["stop"])
     tp = float(row["tp"])
-    color = COLOR_BULL if row["zone_type"] == "demand" else COLOR_BEAR
-
-    # Zone box from formation_time onward (entry ↔ distal — distal is the column
-    # we added to the log in the latest forward_test schema).
-    distal_raw = row.get("distal", None)
-    distal = (
-        float(distal_raw)
-        if distal_raw not in (None, "") and pd.notna(distal_raw)
-        else stop
-    )
-    box_x0 = ltf_df.index[pos]
-    box_x1 = tv.index[-1]
-    fig.add_shape(
-        type="rect",
-        x0=box_x0,
-        x1=box_x1,
-        y0=min(entry, distal),
-        y1=max(entry, distal),
-        fillcolor=color,
-        opacity=0.15,
-        line=dict(color=color, width=1),
-        layer="below",
-    )
-
     x0, x1 = tv.index[0], tv.index[-1]
     for level, name, dash, lc in [
         (entry, "Entry", "solid", "#ffffff"),
         (stop, "Stop", "dash", COLOR_BEAR),
-        (tp, "TP", "dash", COLOR_BULL),
+        (tp, "TP (3R)", "dash", COLOR_BULL),
     ]:
         fig.add_shape(
             type="line",
@@ -373,6 +408,7 @@ def _render_signal_chart(row: pd.Series) -> None:
             yanchor="bottom",
         )
 
+    # ---- Entry marker (white dot) -----------------------------------------
     entry_ts_raw = row.get("entry_time", "")
     if pd.notna(entry_ts_raw) and str(entry_ts_raw):
         et = pd.to_datetime(entry_ts_raw, utc=True, errors="coerce")
@@ -387,6 +423,7 @@ def _render_signal_chart(row: pd.Series) -> None:
                 )
             )
 
+    # ---- Exit marker (X, colour by reason) --------------------------------
     if pd.notna(exit_ts_raw) and str(exit_ts_raw):
         xt = pd.to_datetime(exit_ts_raw, utc=True, errors="coerce")
         if pd.notna(xt):

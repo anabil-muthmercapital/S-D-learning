@@ -130,6 +130,7 @@ SIGNAL_COLS: list[str] = [
     "direction",
     "formation",
     "formation_time",
+    "base_start_time",  # first bar of the base (for dashboard rendering)
     "entry",
     "stop",
     "tp",
@@ -404,6 +405,7 @@ def _process_symbol_ltf(
         if prob < threshold:
             continue
         formation_ts = ltf_df.index[z["end"]]
+        base_start_ts = ltf_df.index[z["start"]]
         # ---- RECENCY FILTER ---------------------------------------------
         # Only zones formed at-or-after the forward-test start date count
         # as forward signals. Earlier zones are historical / back-fill and
@@ -420,6 +422,7 @@ def _process_symbol_ltf(
                 "direction": z["direction"],
                 "formation": z.get("formation", ""),
                 "formation_time": formation_ts.isoformat(),
+                "base_start_time": base_start_ts.isoformat(),
                 "entry": float(z["entry"]),
                 "stop": float(z["stop"]),
                 "tp": float(z["tp"]),
