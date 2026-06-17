@@ -31,12 +31,16 @@
 #   Go to Actions tab → "Forward Test (hourly)" → Run workflow.
 # =============================================================================
 
-name: Forward Test (hourly)
+name: Forward Test (every 15 min)
 
 on:
   schedule:
-    # Minute 5 of every hour, UTC. GitHub cron is best-effort — expect drift.
-    - cron: "5 * * * *"
+    # Every 15 minutes, UTC. GitHub cron is best-effort — expect 5-15 min
+    # drift during peak hours. Note: forward_test.py only finds NEW signals
+    # when a fresh bar closes (1h grid minimum), so 3 of every 4 runs will
+    # be no-ops by design — the value is faster detection of pending→entry
+    # transitions inside the hour, not finding more zones.
+    - cron: "*/15 * * * *"
   workflow_dispatch: {} # also runnable on demand from the Actions tab
 
 # Allow the job to push the updated CSVs back to the repo.
