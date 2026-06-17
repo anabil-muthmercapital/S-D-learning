@@ -34,14 +34,11 @@
 name: Forward Test (every 15 min)
 
 on:
-  schedule:
-    # Every 15 minutes, UTC. GitHub cron is best-effort — expect 5-15 min
-    # drift during peak hours. Note: forward_test.py only finds NEW signals
-    # when a fresh bar closes (1h grid minimum), so 3 of every 4 runs will
-    # be no-ops by design — the value is faster detection of pending→entry
-    # transitions inside the hour, not finding more zones.
-    - cron: "*/15 * * * *"
-  workflow_dispatch: {} # also runnable on demand from the Actions tab
+  # GitHub's own schedule cron is unreliable (10-60 min drift, often
+  # skipped entirely under load). We trigger this workflow from an
+  # external scheduler (cron-job.org) via workflow_dispatch on the
+  # GitHub API — that gives us exactly-on-time every 15 minutes.
+  workflow_dispatch: {}
 
 # Allow the job to push the updated CSVs back to the repo.
 permissions:
