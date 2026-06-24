@@ -160,14 +160,24 @@ def _base_candles(df: pd.DataFrame, highlight_base: bool = False) -> go.Figure:
     if highlight_base and "is_base" in df.columns:
         bb = df[df["is_base"]]
         if not bb.empty:
+            # Anchor the triangle exactly at the candle high (no % offset).
+            # The previous `high * 1.001` looked fine on Forex but on
+            # high-priced or zoomed-in views the arrow floated far above the
+            # wick. Marker size is in pixels → consistent across scales.
             fig.add_trace(
                 go.Scatter(
                     x=bb.index,
-                    y=bb["high"] * 1.001,
+                    y=bb["high"],
                     mode="markers",
-                    marker=dict(symbol="triangle-down", size=7, color=COLOR_DOJI_SAFE),
+                    marker=dict(
+                        symbol="triangle-down",
+                        size=9,
+                        color=COLOR_DOJI_SAFE,
+                        line=dict(width=0),
+                    ),
                     name="base candle",
                     hoverinfo="skip",
+                    cliponaxis=False,
                 )
             )
     fig.update_layout(
